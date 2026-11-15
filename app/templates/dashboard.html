@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neolix 자율주행 관제 대시보드 | C-Track</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    /* 좌측 사이드바: 관제 패널 */
+    #sidebar {
+      width: 380px;
+      background: #1e293b;
+      border-right: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      z-index: 1000;
+      box-shadow: 4px 0 15px rgba(0,0,0,0.3);
+    }
+    .header {
+      padding: 20px;
+      border-bottom: 1px solid #334155;
+      background: #0f172a;
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header p {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #0284c7;
+      color: white;
+      margin-left: auto;
+    }
+    .content {
+      padding: 16px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    /* 차량 텔레메트리 게이지 */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .metric-box {
+      background: #1e293b;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      text-align: center;
+    }
+    .metric-label { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    .metric-val { font-size: 18px; font-weight: 700; color: #f8fafc; }
+    .battery-bar {
+      height: 6px;
+      background: #334155;
+      border-radius: 3px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .battery-fill {
+      height: 100%;
+      background: #10b981;
+      width: 100%;
+      transition: width 0.3s;
+    }
+    /* 제어 버튼 그룹 */
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .btn-primary { background: #0284c7; color: white; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-secondary { background: #334155; color: #f8fafc; }
+    .btn-secondary:hover { background: #475569; }
+    .btn-warning { background: #f59e0b; color: black; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+
+    /* 실시간 로그 */
+    .log-box {
+      background: #020617;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 11px;
+      color: #38bdf8;
+      height: 110px;
+      overflow-y: auto;
+    }
+    .log-line { margin-bottom: 4px; line-height: 1.4; }
+
+    /* 지도 */
+    #map {
+      flex: 1;
+      height: 100%;
+      background: #0f172a;
+    }
+    /* 차량 마커 스타일 */
+    .vehicle-marker {
+      background: #0284c7;
+      color: white;
+      border: 2px solid white;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      box-shadow: 0 0 15px rgba(2, 132, 199, 0.8);
+      transition: all 0.5s ease-out;
+    }
+    .vehicle-marker.moving {
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(14, 165, 233, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 좌측 관제 사이드바 -->
+  <div id="sidebar">
+    <div class="header">
+      <h1>
+        <span>🚗</span> Neolix C-Track 관제
+        <span class="badge" id="connStatus">연결 대기중</span>
+      </h1>
+      <p>가천대 실습 프로젝트 · NT1 Mock Server</p>
+    </div>
+
+    <div class="content">
+      <!-- 차량 상태 카드 -->
+      <div class="card">
+        <div class="card-title">
+          <span id="vName">Neolix 1호차 (X3S1181)</span>
+          <span style="color:#10b981; font-size:11px;" id="vStatus">정상 운행</span>
+        </div>
+        <div class="metric-grid">
+          <div class="metric-box">
+            <div class="metric-label">주행 속도</div>
+            <div class="metric-val" id="vSpeed">0.0 <span style="font-size:12px;">km/h</span></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">현재 기어</div>
+            <div class="metric-val" id="vGear" style="color:#38bdf8;">P</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">배터리</div>
+            <div class="metric-val" id="vBattery">-- %</div>
+            <div class="battery-bar"><div class="battery-fill" id="vBatteryFill"></div></div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-label">통신 지연 (RTT)</div>
+            <div class="metric-val" id="vLatency">-- <span style="font-size:12px;">ms</span></div>
+          </div>
+        </div>
+        <div style="margin-top:10px; font-size:12px; color:#94a3b8;">
+          현재 위치: <span id="vLocName" style="color:#f8fafc; font-weight:600;">출발대기소</span>
+        </div>
+        <div style="margin-top:4px; font-size:12px; color:#94a3b8;">
+          작업 상태: <span id="vTaskInfo" style="color:#f59e0b; font-weight:600;">대기 중</span>
+        </div>
+      </div>
+
+      <!-- 배차 및 주행 제어 버튼 -->
+      <div class="card">
+        <div class="card-title">원격 배차 & 주행 제어</div>
+        <div class="btn-group">
+          <button class="btn-primary" onclick="dispatchPoint('s2')">
+            📍 제1승강장(s2)으로 배차 주행
+          </button>
+          <button class="btn-secondary" onclick="dispatchLoop('r1')">
+            🔄 C-Track 외곽 순환(r1) 시작
+          </button>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <button class="btn-warning" id="pauseBtn" onclick="togglePause()">⏸ 일시정지</button>
+            <button class="btn-danger" onclick="stopVehicle()">🛑 비상 정지</button>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <button class="btn-secondary" onclick="toggleDoor()">🚪 도어 전환</button>
+            <button class="btn-secondary" onclick="toggleLight()">💡 전조등 토글</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 실시간 텔레메트리 로그 -->
+      <div class="card">
+        <div class="card-title">실시간 관제 이벤트 로그</div>
+        <div class="log-box" id="logBox">
+          <div class="log-line">[SYS] 관제 대시보드 로드 완료. WebSocket 연결 준비 중...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 우측 지도 영역 -->
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const VEHICLE_ID = 'X3S1181';
+    let map, vehicleMarker;
+    let stops = [];
+    let currentVehicle = null;
+    let isPaused = false;
+    let doorState = false;
+    let lightState = false;
+
+    function addLog(msg) {
+      const box = document.getElementById('logBox');
+      const time = new Date().toTimeString().slice(0, 8);
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.innerText = `[${time}] ${msg}`;
+      box.prepend(line);
+    }
+
+    // 1. 지도 초기화 (충북대 C-Track 테스트베드 오창)
+    function initMap() {
+      map = L.map('map', { zoomControl: false }).setView([36.7135, 127.4230], 16);
+      L.control.zoom({ position: 'topright' }).addTo(map);
+
+      // 다크 테마 타일맵 (CartoDB DarkMatter)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        maxZoom: 19
+      }).addTo(map);
+
+      // 차량 마커 생성
+      const carIcon = L.divIcon({
+        className: 'vehicle-marker',
+        html: '🚗',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18]
+      });
+      vehicleMarker = L.marker([36.7121, 127.4230], { icon: carIcon }).addTo(map);
+      vehicleMarker.bindPopup('<b>Neolix 1호차 (X3S1181)</b><br>C-Track 관제센터');
+    }
+
+    // 2. 정류장 목록 불러오기 및 지도에 마커/경로 표시
+    async function loadStopsAndRoutes() {
+      try {
+        const resStops = await fetch('/api/stops');
+        stops = await resStops.json();
+
+        const stopCoords = [];
+        stops.forEach(s => {
+          stopCoords.push([s.lat, s.lng]);
+          L.circleMarker([s.lat, s.lng], {
+            radius: 8,
+            fillColor: '#38bdf8',
+            color: '#0284c7',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+          }).addTo(map).bindPopup(`<b>${s.name}</b> (${s.id})`);
+        });
+
+        // C-Track 순환 경로 라인 그리기
+        if (stopCoords.length > 0) {
+          stopCoords.push(stopCoords[0]); // 루프 폐합
+          L.polyline(stopCoords, {
+            color: '#0ea5e9',
+            weight: 3,
+            dashArray: '5, 8',
+            opacity: 0.7
+          }).addTo(map);
+        }
+        addLog(`정류장 ${stops.length}개 및 C-Track 테스트베드 코스 로드 완료`);
+      } catch (e) {
+        addLog('정류장 로드 실패: ' + e);
+      }
+    }
+
+    // 3. WebSocket 실시간 텔레메트리 연동 (1초 주기)
+    function connectTelemetryWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${location.host}/ws/telemetry`;
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('connStatus').innerText = 'LIVE 연결됨';
+        document.getElementById('connStatus').style.background = '#10b981';
+        addLog('WebSocket 실시간 텔레메트리 연결 성공 (1Hz)');
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'telemetry' && data.vehicles) {
+          const v = data.vehicles.find(item => item.id === VEHICLE_ID);
+          if (v) updateVehicleUI(v);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('connStatus').innerText = '연결 끊김';
+        document.getElementById('connStatus').style.background = '#ef4444';
+        addLog('WebSocket 연결 끊김 - 3초 후 재연결 시도');
+        setTimeout(connectTelemetryWS, 3000);
+      };
+    }
+
+    // 4. 차량 상태 UI 및 지도 마커 업데이트
+    function updateVehicleUI(v) {
+      currentVehicle = v;
+      document.getElementById('vSpeed').innerHTML = `${v.speed_kmh.toFixed(1)} <span style="font-size:12px;">km/h</span>`;
+      document.getElementById('vGear').innerText = v.gear;
+      document.getElementById('vBattery').innerText = `${v.battery.toFixed(1)}%`;
+      document.getElementById('vBatteryFill').style.width = `${v.battery}%`;
+      document.getElementById('vLatency').innerHTML = `${v.latency_ms} <span style="font-size:12px;">ms</span>`;
+      document.getElementById('vLocName').innerText = v.location_name || '주행 중';
+
+      if (v.task) {
+        const dist = v.task.remaining_distance_m ? `(남은거리: ${v.task.remaining_distance_m.toFixed(0)}m)` : '';
+        document.getElementById('vTaskInfo').innerText = `${v.task.target_stop_name} 주행 중 ${dist}`;
+        document.getElementById('vTaskInfo').style.color = '#38bdf8';
+        isPaused = v.task.paused;
+        document.getElementById('pauseBtn').innerText = isPaused ? '▶ 재개하기' : '⏸ 일시정지';
+      } else {
+        document.getElementById('vTaskInfo').innerText = '대기 중 (정차)';
+        document.getElementById('vTaskInfo').style.color = '#94a3b8';
+      }
+
+      // 지도 마커 위치 부드럽게 이동
+      vehicleMarker.setLatLng([v.lat, v.lng]);
+      const el = vehicleMarker.getElement();
+      if (el) {
+        if (v.speed_kmh > 0) el.classList.add('moving');
+        else el.classList.remove('moving');
+      }
+    }
+
+    // 5. 제어 API 호출 함수들
+    async function dispatchPoint(stopId) {
+      addLog(`제1승강장(${stopId})으로 배차 명령 전송 중...`);
+      const res = await fetch('/api/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_id: VEHICLE_ID, kind: 'point', target_stop_id: stopId })
+      });
+      const data = await res.json();
+      if (res.ok) addLog(`배차 성공: ${data.message}`);
+      else alert('배차 실패: ' + data.detail);
+    }
+
+    async function dispatchLoop(routeId) {
+      addLog(`외곽 순환 코스(${routeId}) 배차 명령 전송 중...`);
+      const res = await fetch('/api/dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_id: VEHICLE_ID, kind: 'loop', route_id: routeId, loops: 2 })
+      });
+      const data = await res.json();
+      if (res.ok) addLog(`순환 배차 성공: ${data.message}`);
+      else alert('순환 배차 실패: ' + data.detail);
+    }
+
+    async function togglePause() {
+      const endpoint = isPaused ? 'resume' : 'pause';
+      const res = await fetch(`/api/dispatch/${VEHICLE_ID}/${endpoint}`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) addLog(data.message);
+    }
+
+    async function stopVehicle() {
+      const res = await fetch(`/api/dispatch/${VEHICLE_ID}/stop`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) addLog(`비상 정지: ${data.message}`);
+    }
+
+    async function toggleDoor() {
+      doorState = !doorState;
+      const res = await fetch(`/api/vehicles/${VEHICLE_ID}/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ door_open: doorState })
+      });
+      addLog(`도어 상태 변경: ${doorState ? '열림 🔓' : '닫힘 🔒'}`);
+    }
+
+    async function toggleLight() {
+      lightState = !lightState;
+      const res = await fetch(`/api/vehicles/${VEHICLE_ID}/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lights: { low: lightState, high: false, beacon: lightState, fog: false } })
+      });
+      addLog(`전조등/경광등 상태 변경: ${lightState ? 'ON 💡' : 'OFF'}`);
+    }
+
+    // 실행 시작
+    window.onload = async () => {
+      initMap();
+      await loadStopsAndRoutes();
+      connectTelemetryWS();
+    };
+  </script>
+</body>
+</html>
