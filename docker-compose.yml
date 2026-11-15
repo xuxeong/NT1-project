@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # Neolix Mock Server (FastAPI)
+  mock-server:
+    build: .
+    container_name: neolix-mock-server
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DATABASE_URL=postgresql://neolix:neolix123@db:5432/neolix_db
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  # PostgreSQL 데이터베이스 (이력 및 차량 상태 적재용)
+  db:
+    image: postgres:15-alpine
+    container_name: neolix-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=neolix
+      - POSTGRES_PASSWORD=neolix123
+      - POSTGRES_DB=neolix_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
