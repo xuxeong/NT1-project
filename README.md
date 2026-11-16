@@ -10,46 +10,46 @@
 ```mermaid
 flowchart TB
     subgraph ClientLayer ["1. 클라이언트 계층 (Client Layer)"]
-        App["📱 학생 개발 한국어 App\n(React Native / Expo)\n- 차량 상태 조회\n- 배차 / 주행 시작·정지 요청"]
-        Dashboard["🖥️ 실시간 지도 관제 뷰어\n(Leaflet.js / HTML5)\n- C-Track 실시간 위치 모니터링\n- 긴급 제어 및 시연"]
+        App["📱 학생 개발 한국어 App<br/>(React Native / Expo)<br/>• 차량 상태 조회<br/>• 배차 및 주행 시작·정지 요청"]
+        Dashboard["🖥️ 실시간 지도 관제 뷰어<br/>(Leaflet.js / HTML5)<br/>• C-Track 실시간 위치 모니터링<br/>• 긴급 제어 및 시연"]
     end
 
     subgraph ServerLayer ["2. Neolix Mock 서버 계층 (FastAPI Backend)"]
         subgraph API ["REST API & 통신 라우터"]
-            VehiclesAPI["/api/vehicles\n(차량 상태 조회 / 제어)"]
-            DispatchAPI["/api/dispatch\n(배차 / 정차 / 일시정지)"]
-            RoutesAPI["/api/routes, /stops\n(C-Track 경로/정류장)"]
-            WS["/ws/telemetry\n(1Hz WebSocket 브로드캐스트)"]
+            VehiclesAPI["/api/vehicles<br/>(차량 상태 조회 및 제어)"]
+            DispatchAPI["/api/dispatch<br/>(배차 / 정차 / 일시정지)"]
+            RoutesAPI["/api/routes, /stops<br/>(C-Track 경로 및 정류장)"]
+            WS["/ws/telemetry<br/>(1Hz WebSocket 브로드캐스트)"]
         end
 
         subgraph Core ["비즈니스 로직 & 데이터 모델"]
-            Models["Pydantic v2 데이터 모델\n(VehicleState, DispatchRequest)"]
-            Lifespan["FastAPI Lifespan 관리\n(백그라운드 루프 생명주기)"]
+            Models["Pydantic v2 데이터 모델<br/>(VehicleState, DispatchRequest)"]
+            Lifespan["FastAPI Lifespan 관리<br/>(백그라운드 루프 생명주기)"]
         end
 
         subgraph SimEngine ["3. 가상 차량 물리 시뮬레이터 (Server-Internal Model)"]
-            SimLoop["asyncio 1Hz 시뮬레이션 루프\n(초당 4.16m 선형 보간 주행)"]
-            Physics["물리 연산 엔진\n- Haversine 구면 거리 계산\n- 배터리 소모 감쇠 (-0.015%/s)\n- 통신 지연(RTT) 지터 시뮬레이션"]
-            CTrack["C-Track 테스트베드 데이터 모듈\n(정류장 s1~s5 / 순환코스 r1, r2)"]
+            SimLoop["asyncio 1Hz 시뮬레이션 루프<br/>(초당 4.16m 선형 보간 주행)"]
+            Physics["물리 연산 엔진<br/>• Haversine 구면 거리 계산<br/>• 배터리 소모 감쇠 연산<br/>• 통신 지연 지터 시뮬레이션"]
+            CTrack["C-Track 테스트베드 데이터 모듈<br/>(정류장 s1~s5 / 순환코스 r1, r2)"]
         end
     end
 
     subgraph DataLayer ["4. 데이터 계층 (Data & Persistence)"]
-        DB[("🗄️ PostgreSQL (준비 완료)\n- 차량 상태 이력\n- 배차 및 이벤트 로그")]
-        NT1Spec["📄 NT1 공식 제공 자료\n- Neolix API 명세서\n- 충북대 C-Track 고정밀 좌표"]
+        DB[("🗄️ PostgreSQL (준비 완료)<br/>• 차량 상태 이력<br/>• 배차 및 이벤트 로그")]
+        NT1Spec["📄 NT1 공식 제공 자료<br/>• Neolix API 명세서<br/>• 충북대 C-Track 고정밀 좌표"]
     end
 
-    App <-->|HTTP REST / WebSocket| API
-    Dashboard <-->|HTTP REST / WebSocket| API
+    App -->|"HTTP REST / WebSocket"| API
+    Dashboard -->|"HTTP REST / WebSocket"| API
 
     API --> Core
     Core --> SimEngine
     SimLoop --> Physics
     Physics --> CTrack
 
-    SimEngine -.->|텔레메트리 푸시 (1Hz)| WS
-    Core -.->|SQLAlchemy ORM (예정)| DB
-    NT1Spec -.->|좌표 및 스펙 주입| CTrack
+    SimEngine -.->|"1Hz 텔레메트리 푸시"| WS
+    Core -.->|"데이터 적재 예정"| DB
+    NT1Spec -.->|"좌표 및 스펙 주입"| CTrack
 ```
 
 ---
