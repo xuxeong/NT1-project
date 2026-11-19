@@ -31,9 +31,12 @@ class TaskPhase(str, Enum):
 
 class VehicleTask(BaseModel):
     task_id: str
+    route_id: Optional[str] = None
     kind: str = Field(..., description="point(지점), delivery(배송), loop(순환)")
-    target_stop_id: str
+    target_stop_id: Optional[str] = None
     target_stop_name: str
+    target_lat: Optional[float] = None
+    target_lng: Optional[float] = None
     phase: TaskPhase = TaskPhase.IDLE
     remaining_distance_m: float = 0.0
     progress_percent: float = 0.0
@@ -47,6 +50,40 @@ class VehicleLights(BaseModel):
     high: bool = False      # 상향등
     beacon: bool = False    # 경광등
     fog: bool = False       # 안개등
+
+
+class VehicleSensors(BaseModel):
+    # 실제 센서 연동 전 관제 화면용 시험 데이터. 주행 판단에는 사용하지 않습니다.
+    lidar_ok: bool = True
+    radar_ok: bool = True
+    camera_ok: bool = True
+    imu_ok: bool = True
+    gnss_fix: str = "RTK FIX"
+    satellites: int = Field(24, ge=0)
+    accuracy_m: float = Field(0.03, ge=0)
+    lidar_hz: float = Field(10.0, ge=0)
+    camera_fps: float = Field(30.0, ge=0)
+    temperature_c: float = 42.5
+
+
+class VehicleSpecifications(BaseModel):
+    # 사용자 제공 차량 소개 이미지 기준 사양입니다.
+    model: str = "N3 (X3)"
+    model_year: int = 2025
+    manufacturer: str = "Neolix Technologies"
+    platform: str = "후륜 구동 (RR) 전기 플랫폼"
+    cargo_volume_m3: float = 3.0
+    max_payload_kg: float = 520.0
+    full_charge_range_km: float = 100.0
+    battery_capacity_kwh: float = 9.6
+    battery_voltage_v: float = 72.0
+    battery_current_type: str = "DC"
+    design_speed_upper_bound_kmh: float = 40.0  # 이미지 표기는 40km/h 미만
+    charging_time_min_hours: float = 2.0
+    charging_time_max_hours: float = 3.0
+    charging_method: str = "OBC"
+    water_resistance: str = "IPX5"
+    autonomy_level: str = "SAE L4"
 
 
 class VehicleState(BaseModel):
@@ -72,6 +109,9 @@ class VehicleState(BaseModel):
     door_open: bool = False
     lights: VehicleLights = Field(default_factory=VehicleLights)
     
+    sensors: VehicleSensors = Field(default_factory=VehicleSensors)
+    specifications: VehicleSpecifications = Field(default_factory=VehicleSpecifications)
+
     # 작업 상태
     task: Optional[VehicleTask] = None
     location_name: str = "출발 대기소"

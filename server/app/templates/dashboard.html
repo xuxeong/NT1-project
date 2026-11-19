@@ -124,6 +124,8 @@
       justify-content: center;
       gap: 6px;
     }
+    select, input[type="number"] { width:100%; box-sizing:border-box; padding:10px; border:1px solid #475569; border-radius:6px; background:#1e293b; color:#f8fafc; font:inherit; }
+    button:disabled { opacity:0.5; cursor:default; }
     .btn-primary { background: #0284c7; color: white; }
     .btn-primary:hover { background: #0369a1; }
     .btn-secondary { background: #334155; color: #f8fafc; }
@@ -147,12 +149,21 @@
     }
     .log-line { margin-bottom: 4px; line-height: 1.4; }
 
+    .sensor-list { display: grid; gap: 10px; font-size: 12px; }
+    .sensor-list > div { display: flex; justify-content: space-between; gap: 12px; }
+    .sensor-list > div > span:first-child { color: #94a3b8; }
+    .sensor-list > div > span:last-child { text-align: right; }
     /* 지도 */
     #map {
       flex: 1;
       height: 100%;
       background: #0f172a;
     }
+    #map-shell { position: relative; flex: 1; min-width: 0; }
+    #map { width: 100%; }
+    #centerPin { position: absolute; left: 50%; top: 50%; z-index: 650;
+      transform: translate(-50%, -100%); pointer-events: none; font-size: 38px;
+      filter: drop-shadow(0 3px 3px #0008); line-height: 1; }
     /* 차량 마커 스타일 */
     .vehicle-marker {
       background: #0284c7;
@@ -168,6 +179,8 @@
       box-shadow: 0 0 15px rgba(2, 132, 199, 0.8);
       transition: all 0.5s ease-out;
     }
+    .vehicle-marker { background: #475569; }
+    .vehicle-marker.selected { background: #0284c7; border-color: #facc15; }
     .vehicle-marker.moving {
       animation: pulse 1.5s infinite;
     }
@@ -217,23 +230,45 @@
           </div>
         </div>
         <div style="margin-top:10px; font-size:12px; color:#94a3b8;">
-          현재 위치: <span id="vLocName" style="color:#f8fafc; font-weight:600;">출발대기소</span>
+          현재 위치: <span id="vLocName" style="color:#f8fafc; font-weight:600;">위치 수신 중</span>
         </div>
         <div style="margin-top:4px; font-size:12px; color:#94a3b8;">
           작업 상태: <span id="vTaskInfo" style="color:#f59e0b; font-weight:600;">대기 중</span>
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-title">센서 및 시스템 상태 <span id="sensorSummary" style="color:#94a3b8;font-size:11px;">수신 대기</span></div>
+        <div class="sensor-list">
+          <div><span>LiDAR</span><span id="sensorLidar">--</span></div>
+          <div><span>레이더</span><span id="sensorRadar">--</span></div>
+          <div><span>카메라</span><span id="sensorCamera">--</span></div>
+          <div><span>IMU</span><span id="sensorImu">--</span></div>
+          <div><span>GNSS</span><span id="sensorGnss">--</span></div>
+          <div><span>위성 수 / 위치 정확도</span><span id="sensorAccuracy">--</span></div>
+          <div><span>시스템 온도</span><span id="sensorTemperature">--</span></div>
+        </div>
+      </div>
+
+      <details class="card" open>
+        <summary class="card-title" style="cursor:pointer;">차량 제원 · <span id="specModel">수신 대기</span></summary>
+        <div class="sensor-list" id="vehicleSpecs">
+          <div><span>차량 제원</span><span>수신 대기</span></div>
+        </div>
+        <p id="specPlatform" class="metric-label" style="margin-top:12px;line-height:1.6;"></p>
+      </details>
+
       <!-- 배차 및 주행 제어 버튼 -->
       <div class="card">
-        <div class="card-title">원격 배차 & 주행 제어</div>
+        <div class="card-title">C-Track 가상 배차 · 주행 제어</div>
         <div class="btn-group">
-          <button class="btn-primary" onclick="dispatchPoint('s2')">
-            📍 제1승강장(s2)으로 배차 주행
+          <div class="metric-label">지도에서 차량을 클릭해 호차를 선택한 뒤, 중앙 핀으로 목적지를 선택하세요. 선택 차량은 노란 테두리로 표시됩니다.</div>
+          <div id="destinationInfo" class="metric-label" aria-live="polite" style="line-height:1.7;">목적지가 선택되지 않았습니다.</div>
+          <button class="btn-primary" id="pointDispatchBtn" disabled onclick="dispatchPoint()">
+            📍 호출하기
           </button>
-          <button class="btn-secondary" onclick="dispatchLoop('r1')">
-            🔄 C-Track 외곽 순환(r1) 시작
-          </button>
+          <button class="btn-secondary" onclick="clearDestination()">목적지 선택 해제</button>
+          <p class="metric-label" style="margin:0 0 6px;line-height:1.6;">지도 중앙 핀은 선택 기준이며, 실제 목적지는 가장 가까운 초록색 도로 위로 보정됩니다. 파란 선은 현재 차량부터 목적지까지의 미리보기입니다. 주행 중에는 목적지 선택이 숨겨집니다. 중단·완료 후 선택할 수 있으며, 일시정지 중 새 호출은 기존 작업을 비상 정지한 뒤 가능합니다.</p>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
             <button class="btn-warning" id="pauseBtn" onclick="togglePause()">⏸ 일시정지</button>
             <button class="btn-danger" onclick="stopVehicle()">🛑 비상 정지</button>
@@ -256,14 +291,27 @@
   </div>
 
   <!-- 우측 지도 영역 -->
-  <div id="map"></div>
+  <div id="map-shell"><div id="map"></div><div id="centerPin" aria-hidden="true" hidden>📍</div></div>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const VEHICLE_ID = 'X3S1181';
-    let map, vehicleMarker;
-    let stops = [];
+    let selectedVehicleId = 'X3S1181';
+    let map;
+    const vehiclesById = new Map();
+    const vehicleMarkers = new Map();
+    const confirmedRoutes = new Map();
+    let destinationMarker = null;
+    let destinationPlan = null;
+    let destinationPath = null;
+    let destinationVersion = 0;
+    let dispatchPending = false;
+    let selectionActive = false;
+    let previewTimer = null;
+    let previewController = null;
+    let confirmedPath = null;
+    let confirmedDestinationMarker = null;
+    let mapMoving = false;
     let currentVehicle = null;
     let isPaused = false;
     let doorState = false;
@@ -280,7 +328,7 @@
 
     // 1. 지도 초기화 (충북대 C-Track 테스트베드 오창)
     function initMap() {
-      map = L.map('map', { zoomControl: false }).setView([36.7135, 127.4230], 16);
+      map = L.map('map', { zoomControl: false }).setView([36.727629, 127.440838], 16);
       L.control.zoom({ position: 'topright' }).addTo(map);
 
       // OpenStreetMap 표준 무료 타일맵 (API Key 불필요)
@@ -289,49 +337,105 @@
         maxZoom: 19
       }).addTo(map);
 
-      // 차량 마커 생성
-      const carIcon = L.divIcon({
-        className: 'vehicle-marker',
-        html: '🚗',
-        iconSize: [36, 36],
-        iconAnchor: [18, 18]
-      });
-      vehicleMarker = L.marker([36.7121, 127.4230], { icon: carIcon }).addTo(map);
-      vehicleMarker.bindPopup('<b>Neolix 1호차 (X3S1181)</b><br>C-Track 관제센터');
+      map.on('movestart', () => { mapMoving = true; updateDispatchAvailability(); });
+      map.on('move', () => queueDestinationPreview());
+      map.on('moveend', () => { mapMoving = false; queueDestinationPreview(); });
     }
 
-    // 2. 정류장 목록 불러오기 및 지도에 마커/경로 표시
-    async function loadStopsAndRoutes() {
-      try {
-        const resStops = await fetch('/api/stops');
-        stops = await resStops.json();
+    function showConfirmedRoute() {
+      if (confirmedPath) map.removeLayer(confirmedPath);
+      if (confirmedDestinationMarker) map.removeLayer(confirmedDestinationMarker);
+      confirmedPath = confirmedDestinationMarker = null;
+      const path = confirmedRoutes.get(selectedVehicleId);
+      if (!path?.length) return;
+      confirmedPath = L.polyline(path.map(p => [p.lat, p.lng]), {
+        color: '#a78bfa', weight: 6, opacity: 0.85, interactive: false
+      }).addTo(map);
+      const endpoint = path[path.length - 1];
+      confirmedDestinationMarker = L.circleMarker([endpoint.lat, endpoint.lng], {
+        radius: 10, color: '#ffffff', weight: 3, fillColor: '#a78bfa', fillOpacity: 1
+      }).addTo(map).bindTooltip('목적지', {direction: 'top', offset: [0, -10]});
+      confirmedDestinationMarker.bindPopup('호출 확정 목적지');
+    }
 
-        const stopCoords = [];
-        stops.forEach(s => {
-          stopCoords.push([s.lat, s.lng]);
-          L.circleMarker([s.lat, s.lng], {
-            radius: 8,
-            fillColor: '#38bdf8',
-            color: '#0284c7',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.9
-          }).addTo(map).bindPopup(`<b>${s.name}</b> (${s.id})`);
-        });
+    function selectVehicle(id) {
+      if (dispatchPending || id === selectedVehicleId || !vehiclesById.has(id)) return;
+      hideDestinationSelection();
+      selectedVehicleId = id;
+      currentVehicle = null;
+      showConfirmedRoute();
+      updateVehicleUI(vehiclesById.get(id));
+      updateVehicleMarkerStyles();
+      addLog(`선택 차량 변경: ${vehiclesById.get(id).name} (${id})`);
+    }
 
-        // C-Track 순환 경로 라인 그리기
-        if (stopCoords.length > 0) {
-          stopCoords.push(stopCoords[0]); // 루프 폐합
-          L.polyline(stopCoords, {
-            color: '#0ea5e9',
-            weight: 3,
-            dashArray: '5, 8',
-            opacity: 0.7
-          }).addTo(map);
+    function updateVehicleMarkerStyles() {
+      vehicleMarkers.forEach((marker, id) => {
+        const element = marker.getElement();
+        if (element) {
+          element.classList.toggle('selected', id === selectedVehicleId);
+          element.classList.toggle('moving', (vehiclesById.get(id)?.speed_kmh ?? 0) > 0);
+          element.setAttribute('aria-label', vehiclesById.get(id)?.name || id);
         }
-        addLog(`정류장 ${stops.length}개 및 C-Track 테스트베드 코스 로드 완료`);
+        marker.setZIndexOffset(id === selectedVehicleId ? 1000 : 0);
+      });
+    }
+
+    function updateFleet(vehicles) {
+      const ids = new Set(vehicles.map(v => v.id));
+      vehicleMarkers.forEach((marker, id) => {
+        if (!ids.has(id)) {
+          map.removeLayer(marker);
+          vehicleMarkers.delete(id);
+          vehiclesById.delete(id);
+          confirmedRoutes.delete(id);
+        }
+      });
+      vehicles.forEach(v => {
+        vehiclesById.set(v.id, v);
+        let marker = vehicleMarkers.get(v.id);
+        if (!marker) {
+          const label = document.createElement('span');
+          label.textContent = v.name + ' (' + v.id + ')';
+          marker = L.marker([v.lat, v.lng], {icon: L.divIcon({
+            className: 'vehicle-marker', html: '🚗', iconSize: [36, 36], iconAnchor: [18, 18]
+          })}).addTo(map).bindTooltip(label);
+          marker.on('click', () => selectVehicle(v.id));
+          vehicleMarkers.set(v.id, marker);
+        }
+        marker.setLatLng([v.lat, v.lng]);
+      });
+      if (!ids.has(selectedVehicleId)) {
+        hideDestinationSelection();
+        currentVehicle = null;
+        selectedVehicleId = vehicles[0]?.id ?? '';
+        showConfirmedRoute();
+      }
+      const selected = vehiclesById.get(selectedVehicleId);
+      if (selected) updateVehicleUI(selected);
+      else updateDispatchAvailability();
+      updateVehicleMarkerStyles();
+    }
+
+    // 2. 고정 거점 없이 도로망 표시
+    async function loadMapData() {
+      try {
+        const roadData = await (await fetch('/api/roads')).json();
+        const roadLayer = L.layerGroup().addTo(map);
+        roadData.roads.forEach(road => {
+          L.polyline(road.path.map(p => [p.lat, p.lng]), {
+            color: '#548a3b', weight: 2, opacity: 0.65, interactive: false
+          }).addTo(roadLayer);
+        });
+        L.control.layers(null, {
+          'C-Track 전체 도로망': roadLayer
+        }, {
+          position: 'bottomright'
+        }).addTo(map);
+        queueDestinationPreview();
+        addLog('도로망 로드 완료 · 지도를 움직여 목적지를 지정하세요.');
       } catch (e) {
-        addLog('정류장 로드 실패: ' + e);
+        addLog('도로망 로드 실패: ' + e);
       }
     }
 
@@ -350,90 +454,261 @@
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'telemetry' && data.vehicles) {
-          const v = data.vehicles.find(item => item.id === VEHICLE_ID);
-          if (v) updateVehicleUI(v);
+          updateFleet(data.vehicles);
         }
       };
 
       ws.onclose = () => {
         document.getElementById('connStatus').innerText = '연결 끊김';
         document.getElementById('connStatus').style.background = '#ef4444';
+        updateSensorUI({power: false, online: false});
         addLog('WebSocket 연결 끊김 - 3초 후 재연결 시도');
         setTimeout(connectTelemetryWS, 3000);
       };
     }
 
     // 4. 차량 상태 UI 및 지도 마커 업데이트
+    function canSelectDestination() {
+      if (!currentVehicle || !currentVehicle.power || !currentVehicle.online) return false;
+      const task = currentVehicle.task;
+      return !(currentVehicle.speed_kmh > 0) &&
+        (!task || task.phase === 'arrived' || task.phase === 'paused' || task.paused);
+    }
+
+    function hideDestinationSelection() {
+      selectionActive = false;
+      destinationVersion += 1;
+      clearTimeout(previewTimer);
+      previewTimer = null;
+      previewController?.abort();
+      destinationPlan = null;
+      if (destinationMarker) map.removeLayer(destinationMarker);
+      if (destinationPath) map.removeLayer(destinationPath);
+      destinationMarker = destinationPath = null;
+      document.getElementById('centerPin').hidden = true;
+    }
+
+    function updateDispatchAvailability() {
+      if (!canSelectDestination()) {
+        hideDestinationSelection();
+        document.getElementById('destinationInfo').textContent = currentVehicle
+          ? '자율주행 중에는 목적지를 선택할 수 없습니다. 중단 또는 완료 후 선택해 주세요.'
+          : '차량 상태를 확인하는 중…';
+      }
+      const busy = currentVehicle?.task && currentVehicle.task.phase !== 'arrived';
+      document.getElementById('pointDispatchBtn').disabled = !!busy || dispatchPending || mapMoving || !destinationPlan;
+
+    }
+
+    function updateSpecifications(v) {
+      const specs = v.specifications;
+      if (!specs) return;
+      document.getElementById('specModel').textContent = specs.model;
+      const rows = [
+        ['적재 용량', `${specs.cargo_volume_m3} m³`],
+        ['최대 적재중량', `${specs.max_payload_kg} kg`],
+        ['만충 주행거리', `${specs.full_charge_range_km} km`],
+        ['배터리', `${specs.battery_capacity_kwh} kWh · ${specs.battery_voltage_v} V ${specs.battery_current_type}`],
+        ['최대 설계속도', `${specs.design_speed_upper_bound_kmh} km/h 미만`],
+        ['충전 시간', `${specs.charging_time_min_hours}–${specs.charging_time_max_hours} h (${specs.charging_method})`],
+        ['방수 등급', specs.water_resistance],
+        ['자율주행 수준', specs.autonomy_level]
+      ];
+      const container = document.getElementById('vehicleSpecs');
+      const signature = JSON.stringify(specs);
+      if (container.dataset.signature === signature) return;
+      container.dataset.signature = signature;
+      container.replaceChildren(...rows.map(([label, value]) => {
+        const row = document.createElement('div');
+        const title = document.createElement('span');
+        const detail = document.createElement('span');
+        title.textContent = label;
+        detail.textContent = value;
+        row.append(title, detail);
+        return row;
+      }));
+      document.getElementById('specPlatform').textContent =
+        `${specs.model_year}년형 · ${specs.manufacturer} 제조 · ${specs.platform}`;
+    }
+
+    function updateSensorUI(v) {
+      const sensors = v.sensors;
+      const available = v.power && v.online && sensors;
+      const set = (id, text, color = '#f8fafc') => {
+        const element = document.getElementById(id);
+        element.textContent = text;
+        element.style.color = color;
+      };
+      const status = (id, ok, detail = '') => {
+        set(id, available ? (ok ? '정상' + detail : '점검 필요') : '수신 없음',
+          available ? (ok ? '#10b981' : '#f59e0b') : '#94a3b8');
+      };
+      status('sensorLidar', sensors?.lidar_ok, sensors ? ` · ${sensors.lidar_hz.toFixed(0)} Hz` : '');
+      status('sensorRadar', sensors?.radar_ok);
+      status('sensorCamera', sensors?.camera_ok, sensors ? ` · ${sensors.camera_fps.toFixed(0)} fps` : '');
+      status('sensorImu', sensors?.imu_ok);
+      set('sensorGnss', available ? sensors.gnss_fix : '--');
+      set('sensorAccuracy', available ? `${sensors.satellites}개 / ${sensors.accuracy_m.toFixed(2)} m` : '--');
+      set('sensorTemperature', available ? `${sensors.temperature_c.toFixed(1)} °C` : '--');
+      const healthy = available && sensors.lidar_ok && sensors.radar_ok && sensors.camera_ok && sensors.imu_ok;
+      set('sensorSummary', !available ? '수신 없음' : healthy ? '정상' : '점검 필요',
+        !available ? '#94a3b8' : healthy ? '#10b981' : '#f59e0b');
+    }
+
     function updateVehicleUI(v) {
+      document.getElementById('vName').textContent = v.name + ' (' + v.id + ')';
+      document.getElementById('vStatus').textContent = !v.online ? '오프라인' : !v.power ? '전원 꺼짐' : v.task?.paused ? '일시정지' : v.speed_kmh > 0 ? '주행 중' : '정차';
+      document.getElementById('vStatus').style.color = v.online && v.power ? '#10b981' : '#94a3b8';
+      doorState = v.door_open;
+      lightState = !!v.lights?.low;
+      updateSpecifications(v);
+      updateSensorUI(v);
+      const moved = !currentVehicle || currentVehicle.lat !== v.lat || currentVehicle.lng !== v.lng;
+      const previouslySelectable = canSelectDestination();
       currentVehicle = v;
+      if (canSelectDestination() && !dispatchPending &&
+          (!previouslySelectable || (moved && selectionActive))) queueDestinationPreview();
+      updateDispatchAvailability();
       document.getElementById('vSpeed').innerHTML = `${v.speed_kmh.toFixed(1)} <span style="font-size:12px;">km/h</span>`;
       document.getElementById('vGear').innerText = v.gear;
       document.getElementById('vBattery').innerText = `${v.battery.toFixed(1)}%`;
       document.getElementById('vBatteryFill').style.width = `${v.battery}%`;
       document.getElementById('vLatency').innerHTML = `${v.latency_ms} <span style="font-size:12px;">ms</span>`;
-      document.getElementById('vLocName').innerText = v.location_name || '주행 중';
+      document.getElementById('vLocName').innerText = `${v.lat.toFixed(6)}, ${v.lng.toFixed(6)}`;
 
       if (v.task) {
         const dist = v.task.remaining_distance_m ? `(남은거리: ${v.task.remaining_distance_m.toFixed(0)}m)` : '';
-        document.getElementById('vTaskInfo').innerText = `${v.task.target_stop_name} 주행 중 ${dist}`;
+        const phase = v.task.phase === 'arrived' ? '완료' : (v.task.paused ? '일시정지' : '주행 중');
+        const laps = v.task.route_id ? ` · ${v.task.loops_done}/${v.task.loops_total ?? '∞'}회 완료` : '';
+        document.getElementById('vTaskInfo').innerText = `${v.task.target_stop_name} ${phase} ${dist}${laps}`;
         document.getElementById('vTaskInfo').style.color = '#38bdf8';
         isPaused = v.task.paused;
         document.getElementById('pauseBtn').innerText = isPaused ? '▶ 재개하기' : '⏸ 일시정지';
       } else {
         document.getElementById('vTaskInfo').innerText = '대기 중 (정차)';
         document.getElementById('vTaskInfo').style.color = '#94a3b8';
+        isPaused = false;
+        document.getElementById('pauseBtn').innerText = '⏸ 일시정지';
       }
 
-      // 지도 마커 위치 부드럽게 이동
-      vehicleMarker.setLatLng([v.lat, v.lng]);
-      const el = vehicleMarker.getElement();
-      if (el) {
-        if (v.speed_kmh > 0) el.classList.add('moving');
-        else el.classList.remove('moving');
-      }
+
     }
 
     // 5. 제어 API 호출 함수들
-    async function dispatchPoint(stopId) {
-      addLog(`제1승강장(${stopId})으로 배차 명령 전송 중...`);
-      const res = await fetch('/api/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vehicle_id: VEHICLE_ID, kind: 'point', target_stop_id: stopId })
-      });
-      const data = await res.json();
-      if (res.ok) addLog(`배차 성공: ${data.message}`);
-      else alert('배차 실패: ' + data.detail);
+    function clearDestination() {
+      if (dispatchPending) return;
+      hideDestinationSelection();
+      document.getElementById('destinationInfo').textContent = '지도를 움직이면 목적지 선택을 다시 시작합니다.';
+      updateDispatchAvailability();
     }
 
-    async function dispatchLoop(routeId) {
-      addLog(`외곽 순환 코스(${routeId}) 배차 명령 전송 중...`);
-      const res = await fetch('/api/dispatch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vehicle_id: VEHICLE_ID, kind: 'loop', route_id: routeId, loops: 2 })
-      });
-      const data = await res.json();
-      if (res.ok) addLog(`순환 배차 성공: ${data.message}`);
-      else alert('순환 배차 실패: ' + data.detail);
+    // 이동 즉시 이전 결과를 무효화하고 최대 약 6Hz로 최신 중심 좌표를 요청합니다.
+    function queueDestinationPreview(activate = true) {
+      if (dispatchPending || !canSelectDestination() || (!activate && !selectionActive)) return;
+      selectionActive = true;
+      document.getElementById('centerPin').hidden = false;
+      destinationVersion += 1;
+      destinationPlan = null;
+      previewController?.abort();
+      if (destinationPath) map.removeLayer(destinationPath);
+      destinationPath = null;
+      if (destinationMarker) map.removeLayer(destinationMarker);
+      destinationMarker = null;
+      updateDispatchAvailability();
+      document.getElementById('destinationInfo').textContent = '중앙 위치를 도로에 보정하고 경로를 계산하는 중…';
+      if (previewTimer !== null) return;
+      previewTimer = setTimeout(() => {
+        previewTimer = null;
+        selectDestination(map.getCenter(), destinationVersion);
+      }, 150);
+    }
+
+    async function selectDestination(latlng, version) {
+      if (!canSelectDestination() || dispatchPending || version !== destinationVersion) return;
+      const controller = new AbortController();
+      previewController = controller;
+      try {
+        const res = await fetch('/api/dispatch/preview', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, signal: controller.signal,
+          body: JSON.stringify({vehicle_id: selectedVehicleId, target_lat: latlng.lat, target_lng: latlng.lng})
+        });
+        const data = await res.json();
+        if (version !== destinationVersion || !selectionActive || !canSelectDestination()) return;
+        if (!res.ok) throw new Error(data.detail || '목적지 경로를 찾을 수 없습니다.');
+        destinationPlan = data;
+        destinationMarker = L.circleMarker([data.target.lat, data.target.lng], {
+          radius: 8, color: '#fff', weight: 3, fillColor: '#0ea5e9', fillOpacity: 1, interactive: false
+        }).addTo(map);
+        destinationPath = L.polyline(data.path.map(p => [p.lat, p.lng]), {
+          color: '#0ea5e9', weight: 5, opacity: 0.95, interactive: false
+        }).addTo(map);
+        document.getElementById('destinationInfo').textContent =
+          `위도 ${data.target.lat.toFixed(6)} · 경도 ${data.target.lng.toFixed(6)} · 이동 ${data.distance_m.toFixed(0)}m · 도로 보정 ${data.snap_distance_m.toFixed(1)}m` +
+          (currentVehicle?.task?.paused ? ' · 새 호출은 기존 작업 비상 정지 후 가능합니다.' : '');
+        updateDispatchAvailability();
+      } catch (error) {
+        if (error.name === 'AbortError' || version !== destinationVersion) return;
+        document.getElementById('destinationInfo').textContent = error.message;
+        updateDispatchAvailability();
+      }
+    }
+
+    async function dispatchPoint() {
+      if (!destinationPlan || dispatchPending || mapMoving || !canSelectDestination()) return;
+      if (currentVehicle?.task?.phase === 'driving' || currentVehicle?.task?.paused) {
+        alert('현재 작업을 정지한 후 새 배차를 시작해 주세요.');
+        return;
+      }
+      dispatchPending = true;
+      updateDispatchAvailability();
+      try {
+        const res = await fetch('/api/dispatch', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({vehicle_id: selectedVehicleId, kind: 'point',
+            target_lat: destinationPlan.target.lat, target_lng: destinationPlan.target.lng})
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '배차 요청을 처리하지 못했습니다.');
+        confirmedRoutes.set(selectedVehicleId, data.path);
+        showConfirmedRoute();
+        selectionActive = false;
+        destinationVersion += 1;
+        previewController?.abort();
+        if (destinationPath) map.removeLayer(destinationPath);
+        destinationPath = null;
+        destinationPlan = null;
+        document.getElementById('centerPin').hidden = true;
+        document.getElementById('destinationInfo').textContent = '호출 확정 · 보라색 경로를 따라 주행합니다.';
+        addLog(data.message);
+        currentVehicle = {...currentVehicle, task: {phase: 'driving', paused: false}};
+        vehiclesById.set(selectedVehicleId, currentVehicle);
+      } catch (error) {
+        alert('배차 실패: ' + error.message);
+      } finally {
+        dispatchPending = false;
+        updateDispatchAvailability();
+      }
     }
 
     async function togglePause() {
+      if (!currentVehicle || dispatchPending) return;
       const endpoint = isPaused ? 'resume' : 'pause';
-      const res = await fetch(`/api/dispatch/${VEHICLE_ID}/${endpoint}`, { method: 'POST' });
+      const res = await fetch(`/api/dispatch/${selectedVehicleId}/${endpoint}`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) addLog(data.message);
     }
 
     async function stopVehicle() {
-      const res = await fetch(`/api/dispatch/${VEHICLE_ID}/stop`, { method: 'POST' });
+      if (!currentVehicle || dispatchPending) return;
+      const res = await fetch(`/api/dispatch/${selectedVehicleId}/stop`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) addLog(`비상 정지: ${data.message}`);
     }
 
     async function toggleDoor() {
+      if (!currentVehicle || dispatchPending) return;
       doorState = !doorState;
-      const res = await fetch(`/api/vehicles/${VEHICLE_ID}/control`, {
+      const res = await fetch(`/api/vehicles/${selectedVehicleId}/control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ door_open: doorState })
@@ -442,8 +717,9 @@
     }
 
     async function toggleLight() {
+      if (!currentVehicle || dispatchPending) return;
       lightState = !lightState;
-      const res = await fetch(`/api/vehicles/${VEHICLE_ID}/control`, {
+      const res = await fetch(`/api/vehicles/${selectedVehicleId}/control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lights: { low: lightState, high: false, beacon: lightState, fog: false } })
@@ -454,8 +730,15 @@
     // 실행 시작
     window.onload = async () => {
       initMap();
-      await loadStopsAndRoutes();
+      await loadMapData();
       connectTelemetryWS();
+      try {
+        const response = await fetch('/api/vehicles');
+        if (!response.ok) throw new Error('차량 목록 조회 실패');
+        // 실시간 수신이 먼저 도착했다면 초기 HTTP 응답으로 덮어쓰지 않습니다.
+        const vehicles = await response.json();
+        if (!vehiclesById.size) updateFleet(vehicles);
+      } catch (error) { addLog(error.message); }
     };
   </script>
 </body>

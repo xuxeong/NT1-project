@@ -29,7 +29,8 @@ async def test_dispatch_point_and_stop():
         dispatch_res = await ac.post("/api/dispatch", json={
             "vehicle_id": "X3S1181",
             "kind": "point",
-            "target_stop_id": "s2"
+            "target_lat": 36.7297202,
+            "target_lng": 127.4423425
         })
         assert dispatch_res.status_code == 200
         assert dispatch_res.json()["ok"] is True
@@ -39,7 +40,8 @@ async def test_dispatch_point_and_stop():
         assert v_res.status_code == 200
         v_data = v_res.json()
         assert v_data["task"] is not None
-        assert v_data["task"]["target_stop_id"] == "s2"
+        assert v_data["task"]["target_stop_id"] is None
+        assert abs(v_data["task"]["target_lat"] - 36.7297202) < 0.000001
         assert v_data["gear"] == "D"
 
         # 3. 비상 정차 요청
