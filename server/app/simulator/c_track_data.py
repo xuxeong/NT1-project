@@ -1,37 +1,18 @@
 """충북대학교 C-Track 자율주행 테스트베드 초기 데이터 모듈.
 
-NT1 및 멘토님 미팅을 통해 충북대 C-Track 공식 GeoJSON 또는 고정밀 좌표를
-제공받으면 이 모듈의 데이터 리스트만 갱신하면 시뮬레이터에 즉시 반영됩니다.
+고정 거점과 사전 정의 코스 없이 차량 초기 좌표를 제공합니다.
+목적지 이동은 OSM 도로망에서 좌표 경로를 계산합니다.
 """
-from typing import Dict, List
+from typing import List
 from app.models.route import Stop, Route
 from app.models.vehicle import VehicleState, ServiceType, OperationStatus, Gear, VehicleLights
 
-# 충북대학교 C-Track (오창 자율주행 테스트베드) 기준 중심 좌표계 (위도: 36.71, 경도: 127.42 대역)
-INITIAL_STOPS: List[Stop] = [
-    Stop(id="s1", name="C-Track 관제센터 (출발대기소)", lat=36.7121, lng=127.4230, high_precision=True),
-    Stop(id="s2", name="C-Track 제1승강장 (직선코스)", lat=36.7135, lng=127.4245, high_precision=True),
-    Stop(id="s3", name="C-Track 제2승강장 (도심교차로)", lat=36.7150, lng=127.4238, high_precision=True),
-    Stop(id="s4", name="C-Track 제3승강장 (곡선구간)", lat=36.7142, lng=127.4215, high_precision=True),
-    Stop(id="s5", name="C-Track 물류하역장 (하역구역)", lat=36.7128, lng=127.4218, high_precision=True),
-]
+# 고정 거점은 사용하지 않습니다. 기존 지점 API용 저장소는 빈 상태로 시작합니다.
 
-INITIAL_ROUTES: List[Route] = [
-    Route(
-        id="r1",
-        name="C-Track 외곽 순환 본선 코스",
-        total_distance_m=1250.0,
-        stop_ids=["s1", "s2", "s3", "s4", "s5", "s1"],
-        closed_loop=True,
-    ),
-    Route(
-        id="r2",
-        name="C-Track 물류 배송 단거리 코스",
-        total_distance_m=620.0,
-        stop_ids=["s1", "s2", "s5", "s1"],
-        closed_loop=True,
-    ),
-]
+INITIAL_STOPS: List[Stop] = []
+
+# 기업 제공 공식 코스가 없어 사전 정의 코스는 등록하지 않습니다.
+INITIAL_ROUTES: List[Route] = []
 
 INITIAL_VEHICLES: List[VehicleState] = [
     VehicleState(
@@ -43,14 +24,14 @@ INITIAL_VEHICLES: List[VehicleState] = [
         online=True,
         latency_ms=42,
         operation_status=OperationStatus.ACTIVE,
-        lat=36.7121,
-        lng=127.4230,
+        lat=36.7279642,
+        lng=127.4419241,
         speed_kmh=0.0,
         gear=Gear.P,
         battery=98.5,
         door_open=False,
         lights=VehicleLights(low=False, high=False, beacon=False, fog=False),
-        location_name="C-Track 관제센터 (출발대기소)",
+        location_name="초기 위치",
     ),
     VehicleState(
         id="X3S1182",
@@ -61,13 +42,13 @@ INITIAL_VEHICLES: List[VehicleState] = [
         online=True,
         latency_ms=48,
         operation_status=OperationStatus.TRIAL,
-        lat=36.7150,
-        lng=127.4238,
+        lat=36.729597,
+        lng=127.4395988,
         speed_kmh=0.0,
         gear=Gear.P,
         battery=89.0,
         door_open=False,
         lights=VehicleLights(low=True, high=False, beacon=True, fog=False),
-        location_name="C-Track 제2승강장 (도심교차로)",
+        location_name="초기 위치",
     ),
 ]

@@ -7,6 +7,8 @@ import asyncio
 import math
 import random
 import time
+from copy import deepcopy
+from app.simulator.road_network import road_path, path_length, snap_to_road
 from typing import Dict, List, Optional
 from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, Gear, VehicleLights
 from app.models.route import Stop, Route
@@ -32,10 +34,15 @@ class VehicleSimulator:
         # 메모리 상태 캐시
         self.stops: Dict[str, Stop] = {s.id: s for s in INITIAL_STOPS}
         self.routes: Dict[str, Route] = {r.id: r for r in INITIAL_ROUTES}
-        self.vehicles: Dict[str, VehicleState] = {v.id: v for v in INITIAL_VEHICLES}
+        self.vehicles: Dict[str, VehicleState] = {v.id: deepcopy(v) for v in INITIAL_VEHICLES}
         
         # 내부 주행 경로 큐 (vehicle_id -> [stop_id, stop_id, ...])
         self._target_queues: Dict[str, List[str]] = {}
+        self._waypoints = {}
+        self._loop_routes = {}
+        self._loop_started = set()
+        # Coordinate mission snapshots survive arrival/cancellation for app queries.
+        self.coordinate_missions = {}
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
@@ -58,7 +65,12 @@ class VehicleSimulator:
         if not vehicle or not target:
             return False
 
-        dist = haversine_distance_m(vehicle.lat, vehicle.lng, target.lat, target.lng)
+        points = road_path((vehicle.lat, vehicle.lng), (target.lat, target.lng))
+        self.coordinate_missions.pop(vehicle_id, None)
+        self._waypoints[vehicle_id] = points[1:]
+        self._loop_routes.pop(vehicle_id, None)
+        self._loop_started.discard(vehicle_id)
+        dist = path_length(points)
         vehicle.task = VehicleTask(
             task_id=f"task_{int(time.time())}",
             kind="point",
@@ -76,23 +88,61 @@ class VehicleSimulator:
         print(f"[Sim] 차량 {vehicle_id} 지점 배차 시작: {target.name} (거리: {dist:.1f}m)")
         return True
 
+    def preview_coordinate(self, vehicle_id, lat, lng):
+        vehicle = self.vehicles[vehicle_id]
+        destination = snap_to_road((lat, lng), max_distance_m=None)
+        points = road_path((vehicle.lat, vehicle.lng), destination['point'])
+        return {
+            'requested': {'lat': lat, 'lng': lng},
+            'target': {'lat': points[-1][0], 'lng': points[-1][1]},
+            'snap_distance_m': round(destination['offset_m'], 1),
+            'distance_m': round(path_length(points), 1),
+            'path': [{'lat': p[0], 'lng': p[1]} for p in points],
+        }
+
+    def start_dispatch_coordinate(self, vehicle_id, lat, lng):
+        vehicle = self.vehicles[vehicle_id]
+        plan = self.preview_coordinate(vehicle_id, lat, lng)
+        points = [[p['lat'], p['lng']] for p in plan['path']]
+        self._waypoints[vehicle_id] = points[1:]
+        self._target_queues[vehicle_id] = []
+        self._loop_routes.pop(vehicle_id, None)
+        self._loop_started.discard(vehicle_id)
+        vehicle.task = VehicleTask(
+            task_id=f'pin_{time.time_ns()}', kind='point',
+            target_stop_name='지도에서 선택한 목적지',
+            target_lat=plan['target']['lat'], target_lng=plan['target']['lng'],
+            remaining_distance_m=plan['distance_m'], phase=TaskPhase.DRIVING,
+        )
+        self.coordinate_missions[vehicle_id] = {
+            'task': vehicle.task,
+            'path': deepcopy(plan['path']),
+        }
+        vehicle.speed_kmh, vehicle.gear, vehicle.door_open = 15.0, Gear.D, False
+        return plan
+
     def start_dispatch_loop(self, vehicle_id: str, route_id: str, loops_total: Optional[int] = 1) -> bool:
         """순환 코스 배차 명령"""
         vehicle = self.vehicles.get(vehicle_id)
         route = self.routes.get(route_id)
-        if not vehicle or not route or not route.stop_ids:
+        if not vehicle or not route or len(route.path) < 2:
+            return False
+        if loops_total is not None and loops_total < 1:
             return False
 
-        first_stop = self.stops.get(route.stop_ids[0])
-        if not first_stop:
-            return False
-
-        dist = haversine_distance_m(vehicle.lat, vehicle.lng, first_stop.lat, first_stop.lng)
+        start = route.path[0]
+        points = road_path((vehicle.lat, vehicle.lng), (start['lat'], start['lng']))
+        self.coordinate_missions.pop(vehicle_id, None)
+        self._waypoints[vehicle_id] = points[1:]
+        self._loop_routes[vehicle_id] = route_id
+        self._loop_started.discard(vehicle_id)
+        dist = path_length(points)
         vehicle.task = VehicleTask(
             task_id=f"loop_{int(time.time())}",
+            route_id=route_id,
             kind="loop",
-            target_stop_id=first_stop.id,
-            target_stop_name=first_stop.name,
+            target_stop_name=f'{route.name} 시작점',
+            target_lat=start['lat'], target_lng=start['lng'],
             phase=TaskPhase.DRIVING,
             remaining_distance_m=dist,
             progress_percent=0.0,
@@ -103,9 +153,10 @@ class VehicleSimulator:
         vehicle.gear = Gear.D
         vehicle.speed_kmh = 15.0
         vehicle.door_open = False
-        # 전체 경로 큐 저장
-        self._target_queues[vehicle_id] = list(route.stop_ids)
-        print(f"[Sim] 차량 {vehicle_id} 순환 배차 시작: {route.name} (목표 정류장 수: {len(route.stop_ids)})")
+        # 시작점까지 접근한 다음 route.path 전체를 순서대로 주행합니다.
+        # stop_ids 최단 경로로 다시 계산하면 세부 시험 구간이 생략됩니다.
+        self._target_queues[vehicle_id] = []
+        print(f"[Sim] 차량 {vehicle_id} 순환 배차 시작: {route.name}")
         return True
 
     def pause(self, vehicle_id: str) -> bool:
@@ -139,6 +190,9 @@ class VehicleSimulator:
         vehicle.speed_kmh = 0.0
         vehicle.gear = Gear.P
         self._target_queues.pop(vehicle_id, None)
+        self._waypoints.pop(vehicle_id, None)
+        self._loop_routes.pop(vehicle_id, None)
+        self._loop_started.discard(vehicle_id)
         print(f"[Sim] 차량 {vehicle_id} 작업 취소 / 정차")
         return True
 
@@ -149,70 +203,79 @@ class VehicleSimulator:
         if power is not None:
             vehicle.power = power
             if not power:
-                vehicle.speed_kmh = 0.0
-                vehicle.gear = Gear.P
-                vehicle.task = None
+                self.stop(vehicle_id)
         if door_open is not None:
             vehicle.door_open = door_open
         if lights is not None:
             vehicle.lights = lights
         return True
 
-    def tick_one_second(self):
-        """1초마다 실행되는 차량 상태 연산 (물리 시뮬레이션)"""
-        step_m = (15.0 * 1000.0) / 3600.0  # 15km/h = 초당 약 4.16m 이동
+    def planned_path(self, vehicle_id):
+        v = self.vehicles[vehicle_id]
+        return [(v.lat, v.lng), *self._waypoints.get(vehicle_id, [])]
 
+    def tick_one_second(self):
+        """Advance a fixed distance along OSM road segments, including corners."""
         for v_id, v in self.vehicles.items():
             if not v.power or not v.task or v.task.paused or v.task.phase != TaskPhase.DRIVING:
                 continue
-
-            target_id = v.task.target_stop_id
-            target_stop = self.stops.get(target_id)
-            if not target_stop:
-                continue
-
-            dist = haversine_distance_m(v.lat, v.lng, target_stop.lat, target_stop.lng)
-
-            # 지연시간 변동 시뮬레이션
-            v.latency_ms = max(20, min(120, v.latency_ms + random.randint(-5, 5)))
-
-            if dist > step_m:
-                # 목표 지점으로 선형 보간 이동
-                ratio = step_m / dist
-                v.lat += (target_stop.lat - v.lat) * ratio
-                v.lng += (target_stop.lng - v.lng) * ratio
-                v.speed_kmh = 15.0
-                v.gear = Gear.D
-                v.battery = max(0.0, round(v.battery - 0.015, 3))  # 배터리 점진적 소모
-                v.task.remaining_distance_m = dist - step_m
-            else:
-                # 지점 도착 처리
-                v.lat = target_stop.lat
-                v.lng = target_stop.lng
-                v.speed_kmh = 0.0
-                v.gear = Gear.P
-                v.location_name = target_stop.name
-                v.task.remaining_distance_m = 0.0
-
-                queue = self._target_queues.get(v_id, [])
-                if queue and queue[0] == target_id:
-                    queue.pop(0)
-
-                if queue:
-                    # 다음 경유지가 있는 경우
-                    next_stop_id = queue[0]
-                    next_stop = self.stops.get(next_stop_id)
-                    if next_stop:
-                        v.task.target_stop_id = next_stop.id
-                        v.task.target_stop_name = next_stop.name
-                        print(f"[Sim] 차량 {v_id} {target_stop.name} 통과 -> 다음 목표: {next_stop.name}")
-                else:
-                    # 모든 경유지 도착 완료
+            budget = 15.0 / 3.6
+            moved = 0.0
+            while v.task and v.task.phase == TaskPhase.DRIVING:
+                points = self._waypoints.get(v_id, [])
+                if points:
+                    lat, lng = points[0]
+                    dist = haversine_distance_m(v.lat, v.lng, lat, lng)
+                    if dist > budget:
+                        ratio = budget / dist
+                        v.lat += (lat - v.lat) * ratio
+                        v.lng += (lng - v.lng) * ratio
+                        moved += budget
+                        break
+                    v.lat, v.lng = lat, lng
+                    points.pop(0)
+                    budget -= dist
+                    moved += dist
+                    continue
+                v.location_name = f'{v.lat:.6f}, {v.lng:.6f}'
+                if v.task.kind == "loop":
+                    route = self.routes[self._loop_routes[v_id]]
+                    if v_id in self._loop_started:
+                        v.task.loops_done += 1
+                    else:
+                        self._loop_started.add(v_id)
+                    if v.task.loops_total is None or v.task.loops_done < v.task.loops_total:
+                        self._waypoints[v_id] = [
+                            [point['lat'], point['lng']] for point in route.path[1:]
+                        ]
+                        v.task.target_stop_name = route.name
+                        continue
                     v.task.phase = TaskPhase.ARRIVED
-                    print(f"[Sim] 차량 {v_id} 최종 목표 지점 도착 완료: {target_stop.name}")
-                    # 단일 지점 배차의 경우 작업 종료
+                    v.task.remaining_distance_m = 0.0
+                    v.task.progress_percent = 100.0
+                    v.speed_kmh, v.gear = 0.0, Gear.P
+                    self._loop_started.discard(v_id)
+                    break
+                queue = self._target_queues.get(v_id, [])
+                if queue and queue[0] == v.task.target_stop_id:
+                    queue.pop(0)
+                if not queue:
+                    v.task.phase = TaskPhase.ARRIVED
+                    v.task.remaining_distance_m = 0.0
+                    v.task.progress_percent = 100.0
+                    v.speed_kmh, v.gear = 0.0, Gear.P
                     if v.task.kind == "point":
                         v.task = None
+                    break
+                target = self.stops[queue[0]]
+                v.task.target_stop_id, v.task.target_stop_name = target.id, target.name
+                self._waypoints[v_id] = road_path((v.lat, v.lng), (target.lat, target.lng))[1:]
+            if moved:
+                v.battery = max(0.0, round(v.battery - 0.015 * moved / (15 / 3.6), 3))
+                v.latency_ms = max(20, min(120, v.latency_ms + random.randint(-5, 5)))
+            if v.task and v.task.phase == TaskPhase.DRIVING:
+                v.speed_kmh, v.gear = 15.0, Gear.D
+                v.task.remaining_distance_m = path_length(self.planned_path(v_id))
 
     async def run_simulation_loop(self):
         """백그라운드 비동기 루프 (1초 주기)"""
