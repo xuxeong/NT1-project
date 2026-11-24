@@ -93,7 +93,23 @@ async def test_mock_app_mission_lifecycle(monkeypatch):
         await post(f"/mock/vehicles/{vin}/pause")
         await post(f"/mock/vehicles/{vin}/resume")
         sim.tick_one_second()
-        assert (await post("getVehicleInfo", query={"vin": vin}))["data"]["position"] != initial["position"]
+        moving_info = (await post("getVehicleInfo", query={"vin": vin}))["data"]
+        assert moving_info["position"] != initial["position"]
+        assert 0.0 <= moving_info["gnssHead"] < 360.0 and moving_info["gnssHead"] != 0.0
+        assert moving_info["mile"] == round(sim.vehicles[vin].battery, 1)
+
+        # 고장 신고 접수 시 주행 중인 차량은 즉시 일시정지되며 faultStatus=1, vehicleAvailable=1이 됩니다.
+        fault_res = (await post(f"/mock/vehicles/{vin}/fault", body={"faultStatus": 1, "reason": "LiDAR 센서 점검 요청"}))["data"]
+        assert fault_res == {"vin": vin, "faultStatus": 1, "reason": "LiDAR 센서 점검 요청"}
+        assert (await post("getCurrentMission", body={"vin": vin}))["data"]["missionStatus"] == 2
+        fault_batch = (await post("batchGetVehicleList", body={"vin": [vin]}))["data"][0]
+        assert (fault_batch["faultStatus"], fault_batch["vehicleAvailable"]) == (1, 1)
+        await post(f"/mock/vehicles/{vin}/resume", expected=409)
+        await post(f"/mock/vehicles/{vin}/fault", body={"faultStatus": 0})
+        cleared_batch = (await post("batchGetVehicleList", body={"vin": [vin]}))["data"][0]
+        assert cleared_batch["faultStatus"] == 0
+        await post(f"/mock/vehicles/{vin}/resume")
+
         for _ in range(100):
             sim.tick_one_second()
         assert (await post("getCurrentMission", body={"vin": vin}))["data"]["missionStatus"] == 3
