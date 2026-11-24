@@ -82,6 +82,12 @@ class MissionCreated(BaseModel):
     missionId: int
 
 
+class FaultReportStatus(BaseModel):
+    vin: str
+    faultStatus: Literal[0, 1] = Field(description='0 정상(해제), 1 이상(고장 신고 접수)')
+    reason: str | None = Field(None, description='고장 신고 사유')
+
+
 class CurrentMission(BaseModel):
     missionSubId: int = Field(description='작업 ID. 계획 경로의 routeId와 같습니다.')
     vin: str

@@ -10,46 +10,59 @@
 ```mermaid
 flowchart TB
     subgraph ClientLayer ["1. 클라이언트 계층 (Client Layer)"]
-        App["📱 학생 개발 한국어 App<br/>(React Native / Expo)<br/>• 차량 상태 조회<br/>• 배차 및 주행 시작·정지 요청"]
-        Dashboard["🖥️ 실시간 지도 관제 뷰어<br/>(Leaflet.js / HTML5)<br/>• C-Track 실시간 위치 모니터링<br/>• 긴급 제어 및 시연"]
+        App["📱 학생 개발 한국어 App (Android)<br/>(React Native / Expo)<br/>• OAuth 토큰 발급 및 SHA-1 서명 인증<br/>• 차량 조회, 중앙 핀 목적지 선택 및 배차<br/>• 주행 시작·일시정지·재개·취소"]
+        Dashboard["🖥️ 실시간 지도 관제 뷰어 (/dashboard)<br/>(Leaflet.js / OpenStreetMap)<br/>• 1·2호차 실시간 위치·센서·제원 모니터링<br/>• 중앙 핀 드래그 경로 미리보기 및 배차 시연"]
     end
 
     subgraph ServerLayer ["2. Neolix Mock 서버 계층 (FastAPI Backend)"]
-        subgraph API ["REST API & 통신 라우터"]
-            VehiclesAPI["/api/vehicles<br/>(차량 상태 조회 및 제어)"]
-            DispatchAPI["/api/dispatch<br/>(배차 / 정차 / 일시정지)"]
-            RoutesAPI["/api/routes, /stops<br/>(C-Track 경로 및 정류장)"]
-            WS["/ws/telemetry<br/>(1Hz WebSocket 브로드캐스트)"]
+        subgraph Auth ["인증 및 서명 검증 계층"]
+            OAuth["GET /auth/oauth/token<br/>(App Key / Secret 검증 및 토큰 발급)"]
+            SigVerify["공통 Query & Header 검증<br/>(SHA-1 signature, timeStamp, nonce,<br/>access_token, X-From, X-Version)"]
+        end
+
+        subgraph API ["REST API & 실시간 통신 라우터"]
+            NeolixAPI["정식 Neolix API (/openapi-server/slvapi/*)<br/>• getVehicleList, getVehicleInfo, batchGetVehicleList<br/>• getCurrentMission, getPlanningRoute<br/>• vehicleStart/v1, vehicleCancel, powerOnOff"]
+            MockCtrlAPI["Mock 주행 제어 확장 (/mock/vehicles/{vin}/*)<br/>• pause (일시정지) / resume (주행 재개)"]
+            DispatchAPI["지도 좌표 배차 & 관제 API (/api/*)<br/>• /api/dispatch, /api/dispatch/preview<br/>• /api/vehicles, /api/roads"]
+            WS["실시간 텔레메트리 (/ws/telemetry)<br/>(1Hz WebSocket 브로드캐스트)"]
         end
 
         subgraph Core ["비즈니스 로직 & 데이터 모델"]
-            Models["Pydantic v2 데이터 모델<br/>(VehicleState, DispatchRequest)"]
-            Lifespan["FastAPI Lifespan 관리<br/>(백그라운드 루프 생명주기)"]
+            Models["Pydantic v2 데이터 모델<br/>(VehicleState, N3/X3 제원, 센서, Mission)"]
+            Bridge["작업-좌표 배차 브릿지 (resolve_mission)<br/>(지도 좌표 배차를 Neolix 작업·경로 API로 매핑)"]
         end
 
         subgraph SimEngine ["3. 가상 차량 물리 시뮬레이터 (Server-Internal Model)"]
-            SimLoop["asyncio 1Hz 시뮬레이션 루프<br/>(초당 4.16m 선형 보간 주행)"]
-            Physics["물리 연산 엔진<br/>• Haversine 구면 거리 계산<br/>• 배터리 소모 감쇠 연산<br/>• 통신 지연 지터 시뮬레이션"]
-            CTrack["C-Track 테스트베드 데이터 모듈<br/>(정류장 s1~s5 / 순환코스 r1, r2)"]
+            SimLoop["asyncio 1Hz 시뮬레이션 루프<br/>(15km/h = 초당 4.16m 도로 선분 보간 주행)"]
+            RoadNet["C-Track OSM 도로망 엔진 (road_network.py)<br/>• 도로 선분 최근접 투영 (snap_to_road)<br/>• 일방통행 준수 다익스트라 최단경로 탐색"]
+            Physics["차량 상태·물리 연산 엔진<br/>• Haversine 구면 거리 및 잔여 거리 연산<br/>• 배터리 소모(-0.015%/s) 및 통신 지연(RTT) 지터"]
         end
     end
 
     subgraph DataLayer ["4. 데이터 계층 (Data & Persistence)"]
-        DB[("🗄️ PostgreSQL (준비 완료)<br/>• 차량 상태 이력<br/>• 배차 및 이벤트 로그")]
-        NT1Spec["📄 NT1 공식 제공 자료<br/>• Neolix API 명세서<br/>• 충북대 C-Track 고정밀 좌표"]
+        DB[("🗄️ PostgreSQL (Docker Compose)<br/>• 차량 상태 이력<br/>• 배차 및 이벤트 로그")]
+        NT1Spec["📄 NT1 공식 제공 자료<br/>• Neolix API 명세서 (2026.11.18)<br/>• 충북대 C-Track OSM 도로망 (c_track_roads.json)<br/>• N3(X3) 차량 제원 및 디자인 에셋"]
     end
 
-    App -->|"HTTP REST / WebSocket"| API
-    Dashboard -->|"HTTP REST / WebSocket"| API
+    App -->|"HTTP REST (OAuth + SHA-1)"| Auth
+    Auth --> NeolixAPI
+    Auth --> MockCtrlAPI
+    App -->|"좌표 미리보기·배차 / WebSocket"| DispatchAPI
+    App -.->|"1Hz 위치·상태 구독"| WS
+    Dashboard -->|"HTTP REST / WebSocket"| DispatchAPI
+    Dashboard -.->|"1Hz 실시간 관제"| WS
 
-    API --> Core
+    NeolixAPI --> Bridge
+    MockCtrlAPI --> Bridge
+    DispatchAPI --> Core
+    Bridge --> Core
     Core --> SimEngine
     SimLoop --> Physics
-    Physics --> CTrack
+    SimLoop --> RoadNet
 
     SimEngine -.->|"1Hz 텔레메트리 푸시"| WS
-    Core -.->|"데이터 적재 예정"| DB
-    NT1Spec -.->|"좌표 및 스펙 주입"| CTrack
+    Core -.->|"상태·이력 적재"| DB
+    NT1Spec -.->|"명세·도로망·제원 반영"| ServerLayer
 ```
 
 ---
@@ -67,6 +80,8 @@ NT1-project/
 │   ├── Dockerfile              # 서버 도커 빌드 파일
 │   ├── docker-compose.yml      # FastAPI + PostgreSQL 실행 환경
 │   └── README.md               # 서버 실행 및 Swagger/대시보드 사용 설명서
+├── docs/
+│   └── APP_SERVER_INTEGRATION.md # 앱–서버 연동 가이드 및 공통 동작 규칙 명세서
 ├── progress/                   # 팀원별 일일 진행 상황 및 작업 일지
 │   ├── README.md               # 일지 작성 가이드 및 템플릿
 │   ├── choi_sujeong.md         # 최수정 작업 일지 (서버/시뮬레이션)

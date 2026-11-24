@@ -20,6 +20,8 @@ async def dispatch_vehicle(req: DispatchRequest):
         raise HTTPException(status_code=400, detail="차량 전원이 꺼져 있어 배차할 수 없습니다.")
     if not v.online:
         raise HTTPException(status_code=409, detail="오프라인 차량에는 배차할 수 없습니다.")
+    if v.fault_status == 1:
+        raise HTTPException(status_code=409, detail="고장 신고가 접수된 차량에는 배차할 수 없습니다.")
     if v.task and v.task.phase != TaskPhase.ARRIVED:
         raise HTTPException(status_code=409, detail="현재 작업을 정지한 후 새 배차를 시작해 주세요.")
 
