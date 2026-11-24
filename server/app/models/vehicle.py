@@ -101,9 +101,14 @@ class VehicleState(BaseModel):
     operation_status: OperationStatus = OperationStatus.ACTIVE
     lat: float = Field(..., description="현재 위도")
     lng: float = Field(..., description="현재 경도")
+    heading: float = Field(0.0, ge=0.0, lt=360.0, description="차량 방위각 (0~360도, 북쪽 0도 시계방향)")
     speed_kmh: float = 0.0
     gear: Gear = Gear.P
     battery: float = Field(100.0, ge=0.0, le=100.0, description="배터리 잔량 (%)")
+    
+    # 고장/이상 상태 (고장 신고 또는 센서 이상 시)
+    fault_status: int = Field(0, ge=0, le=1, description="차량 전체 고장 상태 (0: 정상, 1: 이상)")
+    fault_reason: Optional[str] = Field(None, description="고장 신고 또는 이상 발생 사유")
     
     # 하드웨어 상태
     door_open: bool = False

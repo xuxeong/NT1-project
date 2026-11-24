@@ -29,6 +29,19 @@ def haversine_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> 
     return r * c
 
 
+def calculate_bearing_deg(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """두 위경도 좌표 간의 방위각(0.0 ~ 360.0도, 정북=0도 시계방향) 계산"""
+    if abs(lat1 - lat2) < 1e-12 and abs(lng1 - lng2) < 1e-12:
+        return 0.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_lambda = math.radians(lng2 - lng1)
+    y = math.sin(delta_lambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
+    bearing = math.degrees(math.atan2(y, x))
+    return round((bearing + 360.0) % 360.0, 1)
+
+
 class VehicleSimulator:
     def __init__(self):
         # 메모리 상태 캐시
@@ -84,6 +97,9 @@ class VehicleSimulator:
         vehicle.gear = Gear.D
         vehicle.speed_kmh = 15.0
         vehicle.door_open = False
+        if self._waypoints[vehicle_id]:
+            nxt = self._waypoints[vehicle_id][0]
+            vehicle.heading = calculate_bearing_deg(vehicle.lat, vehicle.lng, nxt[0], nxt[1])
         self._target_queues[vehicle_id] = [target.id]
         print(f"[Sim] 차량 {vehicle_id} 지점 배차 시작: {target.name} (거리: {dist:.1f}m)")
         return True
@@ -119,6 +135,9 @@ class VehicleSimulator:
             'path': deepcopy(plan['path']),
         }
         vehicle.speed_kmh, vehicle.gear, vehicle.door_open = 15.0, Gear.D, False
+        if self._waypoints[vehicle_id]:
+            nxt = self._waypoints[vehicle_id][0]
+            vehicle.heading = calculate_bearing_deg(vehicle.lat, vehicle.lng, nxt[0], nxt[1])
         return plan
 
     def start_dispatch_loop(self, vehicle_id: str, route_id: str, loops_total: Optional[int] = 1) -> bool:
@@ -210,6 +229,17 @@ class VehicleSimulator:
             vehicle.lights = lights
         return True
 
+    def report_fault(self, vehicle_id: str, fault_status: int, reason: Optional[str] = None) -> bool:
+        """차량 고장 신고 접수(fault_status=1) 또는 해제(fault_status=0)"""
+        vehicle = self.vehicles.get(vehicle_id)
+        if not vehicle:
+            return False
+        vehicle.fault_status = 1 if fault_status else 0
+        vehicle.fault_reason = reason if vehicle.fault_status == 1 else None
+        if vehicle.fault_status == 1 and vehicle.task and vehicle.task.phase == TaskPhase.DRIVING:
+            self.pause(vehicle_id)
+        return True
+
     def planned_path(self, vehicle_id):
         v = self.vehicles[vehicle_id]
         return [(v.lat, v.lng), *self._waypoints.get(vehicle_id, [])]
@@ -226,6 +256,8 @@ class VehicleSimulator:
                 if points:
                     lat, lng = points[0]
                     dist = haversine_distance_m(v.lat, v.lng, lat, lng)
+                    if dist > 1e-6:
+                        v.heading = calculate_bearing_deg(v.lat, v.lng, lat, lng)
                     if dist > budget:
                         ratio = budget / dist
                         v.lat += (lat - v.lat) * ratio
