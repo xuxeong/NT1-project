@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, StrictInt
 from app.models.neolix import (
     MockResponse, FlaggedResponse, TokenResponse, VehicleListItem, VehicleInfo,
     BatchVehicleInfo, StationInfo, MissionCreated, CurrentMission, PlanningRoute,
-    AUTH_ERRORS, VEHICLE_ERRORS, CONTROL_ERRORS,
+    FaultReportStatus, AUTH_ERRORS, VEHICLE_ERRORS, CONTROL_ERRORS,
 )
 from app.models.route import Stop
 from app.models.vehicle import TaskPhase, VehicleState, VehicleTask
@@ -124,6 +124,11 @@ class BatchRequest(BaseModel):
     vin: list[str]
 
 
+class FaultReportRequest(BaseModel):
+    faultStatus: StrictInt = Field(1, description="1: 고장 신고 접수(이상), 0: 고장 해제(정상)")
+    reason: str | None = Field(None, description="고장 신고 사유 또는 증상 메모")
+
+
 @dataclass
 class Mission:
     id: int
@@ -168,13 +173,19 @@ def numeric_id(internal_id: str) -> int:
     return int(internal_id[1:])
 
 
+def has_vehicle_fault(state: VehicleState) -> bool:
+    s = state.sensors
+    sensor_fault = not (s.lidar_ok and s.radar_ok and s.camera_ok and s.imu_ok)
+    return bool(state.fault_status == 1 or sensor_fault)
+
+
 def status_fields(state: VehicleState):
-    # 방위각과 남은 주행거리는 시뮬레이터에 없는 시험용 값입니다.
+    remaining_km = round(state.specifications.full_charge_range_km * (state.battery / 100.0), 1)
     return {
         "vin": state.id, "vinId": state.name, "driveMode": int(state.power),
         "gear": state.gear, "speed": state.speed_kmh,
         "position": {"lon": state.lng, "lat": state.lat},
-        "realBattery": round(state.battery), "mile": 100.0,
+        "realBattery": round(state.battery), "mile": remaining_km,
         "occurTimestamp": time.time_ns() // 1_000_000, "powerState": state.online,
     }
 
@@ -193,7 +204,7 @@ async def list_vehicles(userId: str | None = None):
           summary="차량 상태 조회", description="차량 식별자는 소문자 vin Query로 전달합니다.")
 async def vehicle_info(vin: str):
     state = vehicle(vin)
-    return success({**status_fields(state), "gnssHead": 0.0,
+    return success({**status_fields(state), "gnssHead": state.heading,
                     "parkCode": "MOCK_AOI_01", "parkName": state.aoi})
 
 
@@ -219,7 +230,7 @@ async def start(body: StartRequest):
         raise MockError(404, "MOCK_NOT_FOUND", "지점을 찾을 수 없습니다.")
     if departure == destination:
         raise MockError(422, "MOCK_INVALID", "출발 지점과 도착 지점이 같을 수 없습니다.")
-    if not state.power or not state.online or state.speed_kmh or (
+    if not state.power or not state.online or has_vehicle_fault(state) or state.speed_kmh or (
         state.task and state.task.phase != TaskPhase.ARRIVED
     ):
         raise MockError(409, "MOCK_STATE", "현재 차량 상태에서 배차할 수 없습니다.")
@@ -307,13 +318,14 @@ async def batch_status(body: BatchRequest):
     results = []
     for vin in body.vin:
         state = vehicle(vin)
+        is_fault = has_vehicle_fault(state)
         results.append({
             **status_fields(state), "parkcode": "MOCK_AOI_01", "parkname": state.aoi,
             "vehicleAvailable": int(
-                not state.power or not state.online
+                not state.power or not state.online or is_fault
                 or (state.task is not None and state.task.phase != TaskPhase.ARRIVED)
             ),
-            "faultStatus": 0,
+            "faultStatus": int(is_fault),
         })
     return success(results)
 
@@ -341,11 +353,27 @@ async def pause(vin: str):
 async def resume(vin: str):
     state = vehicle(vin)
     mission = resolve_mission(vin)
-    if mission is None or state.task is not mission.task or not state.power or not state.online:
+    if mission is None or state.task is not mission.task or not state.power or not state.online or has_vehicle_fault(state):
         raise MockError(409, "MOCK_STATE", "재개할 수 있는 작업이 없습니다.")
     if mission.task.paused:
         simulator.resume(vin)
     return success(None)
+
+
+@controls.post("/{vin}/fault", response_model=MockResponse[FaultReportStatus], responses=CONTROL_ERRORS,
+               summary="고장 신고 접수 및 해제 · Mock 확장",
+               description="명세서 12장의 고장 신고 접수용 Mock 확장 API입니다. faultStatus=1(신고 접수) 시 차량이 주행 중이면 즉시 안전 일시정지되며 batchGetVehicleList의 faultStatus=1, vehicleAvailable=1로 반영됩니다. faultStatus=0으로 해제할 수 있습니다.")
+async def report_fault(vin: str, body: FaultReportRequest | None = None):
+    state = vehicle(vin)
+    req = body or FaultReportRequest()
+    if req.faultStatus not in (0, 1):
+        raise MockError(422, "MOCK_INVALID", "faultStatus는 0 또는 1이어야 합니다.")
+    simulator.report_fault(state.id, req.faultStatus, req.reason)
+    return success({
+        "vin": state.id,
+        "faultStatus": state.fault_status,
+        "reason": state.fault_reason,
+    })
 
 
 router.include_router(api)
