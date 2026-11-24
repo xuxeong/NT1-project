@@ -41,3 +41,27 @@
 * **다음 작업 계획**:
   * 11/16 멘토님 미팅을 통해 충북대 C-Track 공식 지도/좌표 자료 수령 후 `c_track_data.py`에 실제 좌표 반영.
   * 장애 주입 시나리오(통신 단절, 배터리 급방전 등) 시뮬레이션 옵션 추가 검토.
+
+---
+
+## [2026-11-24] 고장 신고 Mock 확장 API 연동, 방위각·주행가능거리 동적 연산 및 앱-서버 공통 연동 명세 정립
+
+* **담당 역할**: 시뮬레이터 동적 물리 연산 고도화, 명세서 12장 고장 신고 Mock API 보완, 통합 아키텍처 및 앱-서버 연동 가이드 문서화
+* **주요 작업 내용**:
+
+  1. **도로 선분 주행 방위각(`gnssHead`) 및 잔여 주행가능거리(`mile`) 동적 연산 (`app/simulator/vehicle_sim.py`, `app/models/vehicle.py`, `app/api/neolix.py`)**:
+     * 주행 중 현재 위·경도에서 다음 도로 경유점(`_waypoints`)을 바라보는 정북 기준 시계방향 방위각(`0.0° ~ 360.0°`) 계산 함수(`calculate_bearing_deg`)를 구현하고 `VehicleState.heading` 및 `getVehicleInfo`의 `gnssHead`에 실시간 연동.
+     * 차량 제원(`N3/X3` 만충 주행거리 `100.0km`)과 실시간 배터리 잔량(`battery`) 비율을 연동하여 `getVehicleInfo` 및 `batchGetVehicleList`의 `mile` 필드가 동적으로 감쇠하도록 반영.
+
+  2. **명세서 12장 기준 고장 신고 접수 및 해제 Mock 확장 API 구현 (`app/api/neolix.py`, `app/models/neolix.py`, `app/api/dispatch.py`, `tests/test_mock_api.py`)**:
+     * 공통 인증(OAuth 토큰 + SHA-1 서명 + `X-From` 헤더)을 사용하는 `POST /mock/vehicles/{vin}/fault` 엔드포인트 추가.
+     * 고장 신고(`faultStatus = 1`) 접수 시 주행 중인 차량은 즉시 안전 일시정지(`missionStatus = 2`, `speed = 0.0`, `gear = P`)로 전환되며, `batchGetVehicleList`의 `faultStatus = 1` 및 `vehicleAvailable = 1`(배차 불가)로 반영.
+     * 고장 상태에서 신규 배차 및 주행 재개(`resume`) 요청 시 `409 Conflict`(`MOCK_STATE`)로 차단하고, 고장 해제(`faultStatus = 0`) 후 정상 재개되도록 비동기 E2E 테스트(`tests/test_mock_api.py`) 검증 완료 (전체 16개 테스트 통과).
+
+  3. **통합 SW 구성도 최신화 및 앱-서버 공통 동작 규칙 명세서 작성 (`README.md`, `server/README.md`, `docs/APP_SERVER_INTEGRATION.md`)**:
+     * 루트 `README.md`의 Mermaid 시스템 구성도 및 `server/README.md`의 API 목록을 정식 Neolix API(`/openapi-server/slvapi/*`), OAuth/SHA-1 인증, OSM 도로망 좌표 배차 브릿지 구조에 맞게 최신화.
+     * NT1 `11/18 개발 방향 안내`에서 요청한 앱-서버 공통 동작 규칙(인증/서명, 중앙 핀 드래그 경로 미리보기·호출 시퀀스, 일시정지·재개·취소·전원 상태 전이 규칙, 거리 계산·네트워크 지연 구간·고장 신고·제외 기능 7종)을 `docs/APP_SERVER_INTEGRATION.md`에 체계적으로 문서화.
+
+* **다음 작업 계획**:
+  * PostgreSQL 데이터베이스 및 SQLAlchemy ORM 연동 (차량 상태 이력 및 배차 작업 로그 영구 적재).
+  * 11/27(금) NT1 정기 회의 및 ~11/29(일) 앱-서버 1차 통합 연동 테스트 진행.
