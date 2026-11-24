@@ -32,12 +32,14 @@
 
 ## 👥 담당 역할
 
-* **가상 차량 물리 시뮬레이션 엔진**: 최수정
+* **가상 차량 물리 시뮬레이션 엔진 & 관제 대시보드**: 최수정
   * `app/simulator/vehicle_sim.py`: Haversine 구면 거리 계산, 시간당 선형 보간(Interpolation), 도착 감지, 배터리 소모 모델
-  * `app/simulator/c_track_data.py`: 충북대 C-Track 기준 정류장 및 경로 데이터 모듈화
-* **Mock 서버 통신 및 API 인프라**: 한승규
-  * `app/api/`: REST 엔드포인트 설계 (`/vehicles`, `/dispatch`, `/routes`, `/stops`)
-  * `app/main.py`: 실시간 WebSocket (`/ws/telemetry`), Docker Compose 환경 구성
+  * `app/simulator/c_track_data.py`: 충북대 C-Track 기준 가상 차량(`X3S1181`, `X3S1182`) 초기 상태 모듈화
+  * `app/templates/dashboard.html`: Leaflet.js & OpenStreetMap 기반 실시간 지도 관제 대시보드
+* **Mock 서버 정식 API·인증 연동 & 도로망 경로 탐색**: 한승규
+  * `app/api/neolix.py`: NT1 제공 정식 Neolix API(`/openapi-server/slvapi/*`), OAuth 토큰 및 SHA-1 서명 검증, Mock 일시정지/재개 확장 API
+  * `app/simulator/road_network.py`: C-Track OSM 도로망(`c_track_roads.json`) 선분 투영 및 일방통행 최단경로 계산
+  * `app/api/dispatch.py`: 지도 중앙 핀 목적지 경로 미리보기(`/api/dispatch/preview`) 및 좌표 배차(`/api/dispatch`)
 
 ---
 
@@ -68,28 +70,49 @@ docker-compose up -d --build
 
 ---
 
-## 📖 API 문서 및 시연 (Swagger UI)
+## 📖 API 문서 및 시연 (Swagger UI & Dashboard)
 
 서버 실행 후 브라우저에서 아래 주소로 접속합니다:
 
+* **실시간 지도 관제 대시보드**: [http://localhost:8000/dashboard](http://localhost:8000/dashboard)
 * **Swagger API 문서 (인터랙티브 테스트)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 * **ReDoc 대안 문서**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-### 주요 API 엔드포인트
+### 1) 학생 앱 연동용 정식 Neolix Mock API (`app/api/neolix.py`)
+
+> 공통 인증: `/auth/oauth/token`을 제외한 모든 API는 Query(`signature`, `timeStamp`, `nonce`, `access_token`)와 Header(`X-From`, 선택 `X-Version`)가 필요합니다.
 
 | Method | Endpoint | 설명 |
 |---|---|---|
-| `GET` | `/api/health` | 서버 상태 및 운행 중인 차량/작업 수 확인 |
-| `GET` | `/api/vehicles` | 전체 가상 차량의 실시간 위치, 배터리, 속도 조회 |
+| `GET` | `/auth/oauth/token` | App Key(`client_id`) & Secret(`client_secret`) 검증 후 시험용 토큰 발급 |
+| `GET` | `/openapi-server/slvapi/getVehicleList` | 사용자 소속 가상 차량 목록 조회 (`X3S1181`, `X3S1182`) |
+| `POST` | `/openapi-server/slvapi/getVehicleInfo` | 특정 차량 실시간 위치, 속도, 기어, 배터리, 주행모드 조회 (`vin` Query) |
+| `POST` | `/openapi-server/slvapi/batchGetVehicleList` | 다수 차량 상태, 가용 여부(`vehicleAvailable`), 고장 상태(`faultStatus`) 일괄 조회 |
+| `POST` | `/openapi-server/slvapi/getCurrentMission` | 현재 작업(배차) 상태 조회 (`1`: 주행 중, `2`: 일시정지, `3`: 완료, `4`: 취소) |
+| `POST` | `/openapi-server/slvapi/getPlanningRoute` | 현재 배차된 작업의 전체 계획 경로(`routePath` 좌표 배열 및 `route` 문자열) 조회 |
+| `POST` | `/openapi-server/slvapi/vehicleCancel` | 정차 상태의 현재 작업 취소 (`vin` Query) |
+| `POST` | `/openapi-server/slvapi/powerOnOff` | 가상 차량 전원 켜기(`handleType=1`) / 끄기(`handleType=2`) |
+| `POST` | `/openapi-server/slvapi/listStationByVin/v1` | 차량별 고정 지점 목록 조회 (`Vin` Query, 현재 좌표 배차 사용으로 빈 배열 반환) |
+| `POST` | `/openapi-server/slvapi/vehicleStart/v1` | 고정 정류장 ID 기반 배차 요청 (호환용) |
+| `POST` | `/mock/vehicles/{vin}/pause` | **[Mock 확장]** 주행 중인 작업 일시정지 |
+| `POST` | `/mock/vehicles/{vin}/resume` | **[Mock 확장]** 일시정지된 작업 주행 재개 |
+| `POST` | `/mock/vehicles/{vin}/fault` | **[Mock 확장]** 차량 고장 신고 접수(`faultStatus=1`) 및 해제(`0`) |
+
+### 2) 지도 좌표 배차 & 관제 대시보드 API (`app/api/`)
+
+| Method | Endpoint | 설명 |
+|---|---|---|
+| `POST` | `/api/dispatch/preview` | 지도 선택 좌표의 C-Track 도로 선분 보정(Projection) 및 최단경로 미리보기 계산 |
+| `POST` | `/api/dispatch` | 지도에서 선택한 목적지 좌표(`target_lat`, `target_lng`)로 배차 확정 및 주행 시작 |
+| `POST` | `/api/dispatch/{id}/pause` | 관제 대시보드용 주행 일시정지 |
+| `POST` | `/api/dispatch/{id}/resume` | 관제 대시보드용 주행 재개 |
+| `POST` | `/api/dispatch/{id}/stop` | 관제 대시보드용 비상 정차 및 배차 취소 (`getCurrentMission`에 취소 `4`로 반영) |
+| `GET` | `/api/vehicles` | 전체 가상 차량 상세 상태(센서 및 N3/X3 제원 포함) 조회 |
 | `GET` | `/api/vehicles/{id}` | 특정 차량 상세 상태 조회 |
-| `POST` | `/api/dispatch` | 차량 배차 요청 (지점 이동 또는 순환 코스 주행) |
-| `POST` | `/api/dispatch/{id}/pause` | 주행 일시정지 |
-| `POST` | `/api/dispatch/{id}/resume` | 주행 재개 |
-| `POST` | `/api/dispatch/{id}/stop` | 비상 정차 및 배차 취소 |
-| `POST` | `/api/vehicles/{id}/control` | 차량 하드웨어 제어 (전원, 도어, 조명) |
-| `GET` | `/api/stops` | C-Track 정류장(지점) 목록 조회 |
-| `GET` | `/api/routes` | C-Track 주행 경로 목록 조회 |
-| `WS` | `/ws/telemetry` | 초당 1회 실시간 텔레메트리 스트림 (WebSocket) |
+| `POST` | `/api/vehicles/{id}/control` | 차량 하드웨어 상태 제어 (전원, 도어, 조명) |
+| `GET` | `/api/roads` | C-Track OSM 세부 도로망(`c_track_roads.json`) 렌더링용 좌표 조회 |
+| `GET` | `/api/health` | 서버 상태 및 운행 중인 차량/작업 수 확인 |
+| `WS` | `/ws/telemetry` | 초당 1회(1Hz) 실시간 텔레메트리 스트림 (WebSocket) |
 
 ---
 
@@ -98,10 +121,3 @@ docker-compose up -d --build
 ```bash
 pytest
 ```
-
----
-
-## 🔄 충북대 C-Track 공식 데이터 반영 안내
-
-NT1 및 멘토님 미팅을 통해 충북대 C-Track 공식 GeoJSON 또는 좌표가 제공되면:
-* `app/simulator/c_track_data.py` 파일 내의 `INITIAL_STOPS` 및 `INITIAL_ROUTES` 리스트만 교체하면 즉시 반영됩니다.
