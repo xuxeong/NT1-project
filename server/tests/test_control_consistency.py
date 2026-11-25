@@ -32,6 +32,17 @@ async def test_dashboard_and_app_share_fault_and_power_rules(monkeypatch):
             return await client.post(path, params=auth, json=body)
 
         assert (await client.post('/api/dispatch', json=payload)).status_code == 200
+        # 명세 3.2: 주행 중 재개와 일시정지 중 반복 정지는 상태 충돌입니다.
+        assert (await client.post(f'/api/dispatch/{vin}/resume')).status_code == 409
+        assert (await app_post(f'/mock/vehicles/{vin}/resume')).status_code == 409
+        assert (await client.post(f'/api/dispatch/{vin}/pause')).status_code == 200
+        paused_task = v.task
+        paused_path = list(sim._waypoints[vin])
+        assert (await client.post(f'/api/dispatch/{vin}/pause')).status_code == 409
+        assert (await app_post(f'/mock/vehicles/{vin}/pause')).status_code == 409
+        assert v.task is paused_task and v.task.paused
+        assert sim._waypoints[vin] == paused_path
+        assert (await app_post(f'/mock/vehicles/{vin}/resume')).status_code == 200
         task = v.task
         path = list(sim._waypoints[vin])
         position = (v.lat, v.lng)

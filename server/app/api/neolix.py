@@ -334,7 +334,7 @@ controls = APIRouter(prefix="/mock/vehicles", dependencies=[Depends(authenticate
 
 @controls.post("/{vin}/pause", response_model=MockResponse[None], responses=CONTROL_ERRORS,
                summary="주행 일시정지 · 지도 배차 연동",
-               description="정류장 및 지도 좌표 배차에 적용하는 Mock 확장입니다. 공통 인증 Query가 필요합니다.")
+               description="정류장 및 지도 좌표 배차에 적용합니다. 주행 중 작업만 허용하며 이미 일시정지한 작업은 409입니다. 공통 인증 Query가 필요합니다.")
 async def pause(vin: str):
     state = vehicle(vin)
     mission = resolve_mission(vin)
@@ -347,7 +347,7 @@ async def pause(vin: str):
 
 @controls.post("/{vin}/resume", response_model=MockResponse[None], responses=CONTROL_ERRORS,
                summary="주행 재개 · 지도 배차 연동",
-               description="정류장 및 지도 좌표 배차에 적용하는 Mock 확장입니다. 공통 인증 Query가 필요합니다.")
+               description="정류장 및 지도 좌표 배차에 적용합니다. 일시정지한 작업만 허용하며 이미 주행 중인 작업은 409입니다. 고장·전원 OFF·오프라인·운행 정지 상태는 재개할 수 없습니다. 공통 인증 Query가 필요합니다.")
 async def resume(vin: str):
     state = vehicle(vin)
     mission = resolve_mission(vin)

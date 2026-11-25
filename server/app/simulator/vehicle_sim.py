@@ -183,7 +183,7 @@ class VehicleSimulator:
     def pause(self, vehicle_id: str) -> bool:
         vehicle = self.vehicles.get(vehicle_id)
         if (not vehicle or not vehicle.task or not vehicle.power or not vehicle.online
-                or vehicle.task.phase not in (TaskPhase.DRIVING, TaskPhase.PAUSED)):
+                or vehicle.task.phase != TaskPhase.DRIVING or vehicle.task.paused):
             return False
         vehicle.task.paused = True
         vehicle.task.phase = TaskPhase.PAUSED
@@ -195,7 +195,7 @@ class VehicleSimulator:
     def resume(self, vehicle_id: str) -> bool:
         vehicle = self.vehicles.get(vehicle_id)
         if (not vehicle or not vehicle.task or not vehicle.motion_allowed
-                or vehicle.task.phase not in (TaskPhase.DRIVING, TaskPhase.PAUSED)):
+                or vehicle.task.phase != TaskPhase.PAUSED or not vehicle.task.paused):
             return False
         vehicle.task.paused = False
         vehicle.task.phase = TaskPhase.DRIVING

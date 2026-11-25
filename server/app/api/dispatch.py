@@ -62,6 +62,7 @@ async def preview_dispatch(req: CoordinatePreviewRequest):
 
 @router.post("/{vehicle_id}/pause", response_model=CommandResponse, summary="주행 일시정지")
 async def pause_vehicle(vehicle_id: str):
+    """주행 중 작업만 일시정지합니다. 이미 일시정지한 작업은 409입니다."""
     if simulator.get_vehicle(vehicle_id) is None:
         raise HTTPException(status_code=404, detail="차량을 찾을 수 없습니다.")
     ok = simulator.pause(vehicle_id)
@@ -72,6 +73,7 @@ async def pause_vehicle(vehicle_id: str):
 
 @router.post("/{vehicle_id}/resume", response_model=CommandResponse, summary="주행 재개")
 async def resume_vehicle(vehicle_id: str):
+    """일시정지한 작업만 재개합니다. 이미 주행 중인 작업은 409입니다."""
     if simulator.get_vehicle(vehicle_id) is None:
         raise HTTPException(status_code=404, detail="차량을 찾을 수 없습니다.")
     ok = simulator.resume(vehicle_id)
