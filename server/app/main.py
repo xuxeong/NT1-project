@@ -10,11 +10,14 @@ from app.config import PROJECT_NAME, PROJECT_VERSION, API_V1_PREFIX
 from app.api import vehicles_router, dispatch_router, routes_router
 from app.api.neolix import router as neolix_router
 from app.simulator.vehicle_sim import simulator
+from app.db.repository import db_logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 서버 기동 시: 가상 주행 물리 시뮬레이션 백그라운드 태스크 시작
+    # 서버 기동 시: DB 테이블 초기화, 초기 차량 동기화 및 1Hz 시뮬레이션 태스크 시작
+    for v in simulator.get_all_vehicles():
+        db_logger.sync_vehicle(v)
     simulator.start_background_loop()
     yield
     # 서버 종료 시: 시뮬레이션 태스크 정리
