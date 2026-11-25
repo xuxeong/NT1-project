@@ -10,7 +10,7 @@ import time
 from copy import deepcopy
 from app.simulator.road_network import road_path, path_length, snap_to_road
 from typing import Dict, List, Optional
-from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, Gear, VehicleLights
+from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, TaskStatus, Gear, VehicleLights
 from app.models.route import Stop, Route
 from app.simulator.c_track_data import INITIAL_STOPS, INITIAL_ROUTES, INITIAL_VEHICLES
 
@@ -39,7 +39,7 @@ def calculate_bearing_deg(lat1: float, lng1: float, lat2: float, lng2: float) ->
     y = math.sin(delta_lambda) * math.cos(phi2)
     x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
     bearing = math.degrees(math.atan2(y, x))
-    return round((bearing + 360.0) % 360.0, 1)
+    return round((bearing + 360.0) % 360.0, 1) % 360.0
 
 
 class VehicleSimulator:
@@ -75,7 +75,7 @@ class VehicleSimulator:
         """단일 지점 배차 명령"""
         vehicle = self.vehicles.get(vehicle_id)
         target = self.stops.get(target_stop_id)
-        if not vehicle or not target:
+        if not vehicle or not target or not vehicle.dispatch_available:
             return False
 
         points = road_path((vehicle.lat, vehicle.lng), (target.lat, target.lng))
@@ -118,6 +118,8 @@ class VehicleSimulator:
 
     def start_dispatch_coordinate(self, vehicle_id, lat, lng):
         vehicle = self.vehicles[vehicle_id]
+        if not vehicle.dispatch_available:
+            raise ValueError("현재 차량 상태에서 배차할 수 없습니다.")
         plan = self.preview_coordinate(vehicle_id, lat, lng)
         points = [[p['lat'], p['lng']] for p in plan['path']]
         self._waypoints[vehicle_id] = points[1:]
@@ -144,7 +146,7 @@ class VehicleSimulator:
         """순환 코스 배차 명령"""
         vehicle = self.vehicles.get(vehicle_id)
         route = self.routes.get(route_id)
-        if not vehicle or not route or len(route.path) < 2:
+        if not vehicle or not route or len(route.path) < 2 or not vehicle.dispatch_available:
             return False
         if loops_total is not None and loops_total < 1:
             return False
@@ -180,7 +182,8 @@ class VehicleSimulator:
 
     def pause(self, vehicle_id: str) -> bool:
         vehicle = self.vehicles.get(vehicle_id)
-        if not vehicle or not vehicle.task:
+        if (not vehicle or not vehicle.task or not vehicle.power or not vehicle.online
+                or vehicle.task.phase not in (TaskPhase.DRIVING, TaskPhase.PAUSED)):
             return False
         vehicle.task.paused = True
         vehicle.task.phase = TaskPhase.PAUSED
@@ -191,7 +194,8 @@ class VehicleSimulator:
 
     def resume(self, vehicle_id: str) -> bool:
         vehicle = self.vehicles.get(vehicle_id)
-        if not vehicle or not vehicle.task:
+        if (not vehicle or not vehicle.task or not vehicle.motion_allowed
+                or vehicle.task.phase not in (TaskPhase.DRIVING, TaskPhase.PAUSED)):
             return False
         vehicle.task.paused = False
         vehicle.task.phase = TaskPhase.DRIVING
@@ -205,6 +209,11 @@ class VehicleSimulator:
         vehicle = self.vehicles.get(vehicle_id)
         if not vehicle:
             return False
+        if vehicle.task is not None:
+            vehicle._last_task_status = (
+                TaskStatus.COMPLETED if vehicle.task.phase == TaskPhase.ARRIVED
+                else TaskStatus.CANCELLED
+            )
         vehicle.task = None
         vehicle.speed_kmh = 0.0
         vehicle.gear = Gear.P
@@ -219,6 +228,8 @@ class VehicleSimulator:
         vehicle = self.vehicles.get(vehicle_id)
         if not vehicle:
             return False
+        if power is False and vehicle.speed_kmh != 0:
+            return False
         if power is not None:
             vehicle.power = power
             if not power:
@@ -231,13 +242,18 @@ class VehicleSimulator:
 
     def report_fault(self, vehicle_id: str, fault_status: int, reason: Optional[str] = None) -> bool:
         """차량 고장 신고 접수(fault_status=1) 또는 해제(fault_status=0)"""
+        if type(fault_status) is not int or fault_status not in (0, 1):
+            raise ValueError("fault_status는 정수 0 또는 1이어야 합니다.")
         vehicle = self.vehicles.get(vehicle_id)
         if not vehicle:
             return False
         vehicle.fault_status = 1 if fault_status else 0
         vehicle.fault_reason = reason if vehicle.fault_status == 1 else None
         if vehicle.fault_status == 1 and vehicle.task and vehicle.task.phase == TaskPhase.DRIVING:
-            self.pause(vehicle_id)
+            # 신고 정지는 사용자 제어와 달리 오프라인/전원 상태와 무관하게 즉시 적용합니다.
+            vehicle.task.paused = True
+            vehicle.task.phase = TaskPhase.PAUSED
+            vehicle.speed_kmh, vehicle.gear = 0.0, Gear.P
         return True
 
     def planned_path(self, vehicle_id):
@@ -247,6 +263,10 @@ class VehicleSimulator:
     def tick_one_second(self):
         """Advance a fixed distance along OSM road segments, including corners."""
         for v_id, v in self.vehicles.items():
+            if v.task and v.task.phase == TaskPhase.DRIVING and not v.motion_allowed:
+                v.task.paused = True
+                v.task.phase = TaskPhase.PAUSED
+                v.speed_kmh, v.gear = 0.0, Gear.P
             if not v.power or not v.task or v.task.paused or v.task.phase != TaskPhase.DRIVING:
                 continue
             budget = 15.0 / 3.6
@@ -297,12 +317,14 @@ class VehicleSimulator:
                     v.task.progress_percent = 100.0
                     v.speed_kmh, v.gear = 0.0, Gear.P
                     if v.task.kind == "point":
+                        v._last_task_status = TaskStatus.COMPLETED
                         v.task = None
                     break
                 target = self.stops[queue[0]]
                 v.task.target_stop_id, v.task.target_stop_name = target.id, target.name
                 self._waypoints[v_id] = road_path((v.lat, v.lng), (target.lat, target.lng))[1:]
             if moved:
+                v.location_name = f'{v.lat:.6f}, {v.lng:.6f}'
                 v.battery = max(0.0, round(v.battery - 0.015 * moved / (15 / 3.6), 3))
                 v.latency_ms = max(20, min(120, v.latency_ms + random.randint(-5, 5)))
             if v.task and v.task.phase == TaskPhase.DRIVING:
