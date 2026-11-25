@@ -65,3 +65,28 @@
 * **다음 작업 계획**:
   * PostgreSQL 데이터베이스 및 SQLAlchemy ORM 연동 (차량 상태 이력 및 배차 작업 로그 영구 적재).
   * 11/27(금) NT1 정기 회의 및 ~11/29(일) 앱-서버 1차 통합 연동 테스트 진행.
+
+---
+
+## [2026-11-25] PostgreSQL & SQLAlchemy ORM 데이터베이스 영구 적재 연동
+
+* **담당 역할**: 차량 상태 스냅샷, 배차 작업(Mission) 이력 및 이벤트 감사 로그 DB 영구 적재 아키텍처 구현
+* **주요 작업 내용**:
+
+  1. **PostgreSQL & SQLite 호환 SQLAlchemy 2.0 ORM 엔진 및 세션 구축 (`app/db/database.py`, `app/config.py`)**:
+     * `docker-compose.yml`의 PostgreSQL(`DATABASE_URL`) 환경과 로컬 개발·테스트용 SQLite 폴백을 동시에 지원하는 하이브리드 DB 연결 구조 구현.
+     * 서버 기동(`lifespan`) 시 ORM 테이블 자동 초기화(`init_db()`) 및 초기 가상 차량(`X3S1181`, `X3S1182`) 상태 DB 동기화 연동.
+
+  2. **차량·배차·이벤트 3대 핵심 ORM 모델 및 리포지토리 구현 (`app/db/models.py`, `app/db/repository.py`)**:
+     * `VehicleRecord` (`vehicles`): 차량 최신 위치, 방위각, 속도, 기어, 배터리, 전원, 온라인, 고장 상태 Upsert.
+     * `MissionRecord` (`mission_logs`): 배차 작업 생성(`1`), 일시정지(`2`), 도착 완료(`3`), 작업 취소(`4`) 상태 전이 및 출발·목적지 좌표, 총 주행 거리 이력 저장.
+     * `VehicleEventRecord` (`vehicle_event_logs`): `DISPATCH_START`, `PAUSE`, `RESUME`, `ARRIVED`, `CANCEL`, `POWER_CHANGE`, `FAULT_REPORT`, `FAULT_CLEAR` 이벤트 감사 로그 기록.
+
+  3. **시뮬레이터 생명주기 DB 자동 적재 및 이력 조회 REST API 추가 (`app/simulator/vehicle_sim.py`, `app/api/vehicles.py`, `tests/test_db_persistence.py`)**:
+     * 시뮬레이터에서 배차 시작·일시정지·재개·도착·취소·전원·고장신고 발생 시 DB에 자동 기록되도록 연결.
+     * 적재된 배차 작업 이력 및 이벤트 로그를 조회하는 `GET /api/vehicles/history/missions`, `GET /api/vehicles/history/events` 엔드포인트 구현.
+     * 인메모리 SQLite 기반 격리 단위 테스트(`tests/test_db_persistence.py`) 작성 및 검증 완료 (전체 pytest 통과).
+
+* **작업 상태 및 다음 계획**:
+  * 코드·테스트는 `feature/postgres-sqlalchemy-orm` 브랜치에 커밋·푸시 완료 (`main` 병합 전).
+  * `feature/vehicle-api-refinement` 브랜치와 함께 `main` 병합 후 통합 동작 확인 및 ~11/29(일) 앱-서버 1차 연동 검증 진행 예정.
