@@ -29,7 +29,7 @@ app = FastAPI(
 
 NT1 실습 프로젝트 SW Architecture를 준수하여 구현된 **FastAPI 기반 Mock 서버**입니다.
 - **가상 차량 시뮬레이션 엔진**: 충북대 C-Track 테스트베드 경로를 따라 초당 1회(1Hz) 위경도 보간 주행
-- **표준 REST API**: 차량 상태 조회, 배차 명령, 비상 정차, 전원/조명/도어 제어
+- **표준 REST API**: 차량 상태 조회, 배차 명령, 비상 정차, 전원 제어
 - **실시간 WebSocket 텔레메트리**: `/ws/telemetry`를 통한 초당 1회 실시간 위치 스트리밍
     """,
     lifespan=lifespan,

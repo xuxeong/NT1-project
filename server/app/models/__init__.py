@@ -1,4 +1,4 @@
-from app.models.vehicle import VehicleState, VehicleTask, ServiceType, OperationStatus, Gear, VehicleLights
+from app.models.vehicle import VehicleState, VehicleTask, ServiceType, OperationStatus, Gear
 from app.models.route import Stop, Route
 from app.models.dispatch import DispatchRequest, ControlRequest, CommandResponse
 
@@ -8,7 +8,6 @@ __all__ = [
     "ServiceType",
     "OperationStatus",
     "Gear",
-    "VehicleLights",
     "Stop",
     "Route",
     "DispatchRequest",

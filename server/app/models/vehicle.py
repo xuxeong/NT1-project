@@ -66,13 +66,6 @@ class VehicleTask(BaseModel):
     loops_total: Optional[int] = None
 
 
-class VehicleLights(BaseModel):
-    low: bool = False       # 하향등
-    high: bool = False      # 상향등
-    beacon: bool = False    # 경광등
-    fog: bool = False       # 안개등
-
-
 class VehicleSensors(BaseModel):
     # 실제 센서 연동 전 시험 데이터. 정상 여부는 Mock의 고장 판단에도 사용합니다.
     lidar_ok: bool = True
@@ -132,10 +125,6 @@ class VehicleState(BaseModel):
     # 고장/이상 상태 (고장 신고 또는 센서 이상 시)
     fault_status: int = Field(0, ge=0, le=1, description="수동 고장 신고 상태 (0: 해제, 1: 접수). 센서 포함 종합 상태와 구분")
     fault_reason: Optional[str] = Field(None, description="고장 신고 또는 이상 발생 사유")
-    
-    # 하드웨어 상태
-    door_open: bool = False
-    lights: VehicleLights = Field(default_factory=VehicleLights)
     
     sensors: VehicleSensors = Field(default_factory=VehicleSensors)
     specifications: VehicleSpecifications = Field(default_factory=VehicleSpecifications)

@@ -308,7 +308,7 @@ async def power(body: PowerRequest):
         raise MockError(422, "MOCK_INVALID", "handleType은 1 또는 2여야 합니다.")
     if body.handleType == 2 and state.speed_kmh != 0:
         raise MockError(409, "MOCK_STATE", "정차 후 전원을 끌 수 있습니다.")
-    if not simulator.control(state.id, power=body.handleType == 1, door_open=None, lights=None):
+    if not simulator.control(state.id, power=body.handleType == 1):
         raise MockError(409, "MOCK_STATE", "현재 차량 상태에서 전원을 제어할 수 없습니다.")
     return success(None)
 

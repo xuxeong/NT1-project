@@ -28,14 +28,14 @@ async def get_vehicle(vehicle_id: str):
     return v
 
 
-@router.post("/{vehicle_id}/control", response_model=CommandResponse, summary="차량 하드웨어 제어 (전원, 도어, 조명)")
+@router.post("/{vehicle_id}/control", response_model=CommandResponse, summary="차량 전원 제어")
 async def control_vehicle(vehicle_id: str, req: ControlRequest):
     vehicle = simulator.get_vehicle(vehicle_id)
     if vehicle is None:
         raise HTTPException(status_code=404, detail=f"차량 {vehicle_id}을 찾을 수 없습니다.")
     if req.power is False and vehicle.speed_kmh != 0:
         raise HTTPException(status_code=409, detail="정차 후 전원을 끌 수 있습니다.")
-    ok = simulator.control(vehicle_id, power=req.power, door_open=req.door_open, lights=req.lights)
+    ok = simulator.control(vehicle_id, power=req.power)
     if not ok:
         raise HTTPException(status_code=404, detail=f"차량 {vehicle_id} 제어 실패")
-    return CommandResponse(ok=True, message="차량 하드웨어 제어 명령이 처리되었습니다.", vehicle_id=vehicle_id)
+    return CommandResponse(ok=True, message="차량 전원 제어 명령이 처리되었습니다.", vehicle_id=vehicle_id)

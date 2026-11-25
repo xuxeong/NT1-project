@@ -123,9 +123,9 @@ def test_vehicle_status_lifecycle_and_serialization():
     sim.start_dispatch_coordinate(v.id, 36.7279642, 127.4419241)
     sim.stop(v.id)
     assert status() == ('available', 'cancelled', 'standby')
-    assert sim.control(v.id, power=False, door_open=None, lights=None)
+    assert sim.control(v.id, power=False)
     assert status() == ('stopped', 'cancelled', 'off')
-    assert sim.control(v.id, power=True, door_open=None, lights=None)
+    assert sim.control(v.id, power=True)
     assert status() == ('available', 'cancelled', 'standby')
 
 
@@ -209,3 +209,29 @@ def test_fault_report_immediately_stops_offline_vehicle_and_validates_input():
         assert v.fault_status == 1 and v.fault_reason == '점검 요청'
     assert sim.report_fault(v.id, 0)
     assert v.fault_reason is None and v.task.paused
+
+
+@pytest.mark.asyncio
+async def test_removed_door_and_light_controls_are_rejected(monkeypatch):
+    sim = VehicleSimulator()
+    monkeypatch.setattr(vehicles, 'simulator', sim)
+    v = sim.vehicles['X3S1181']
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+        for payload in (
+            {'door_open': True}, {'lights': {'low': True}},
+            {'power': False, 'door_open': True}, {'power': False, 'lights': {'low': True}},
+        ):
+            response = await client.post(f'/api/vehicles/{v.id}/control', json=payload)
+            assert response.status_code == 422
+            assert v.power is True
+        assert (await client.post(f'/api/vehicles/{v.id}/control', json={'power': False})).status_code == 200
+        detail = (await client.get(f'/api/vehicles/{v.id}')).json()
+        assert detail['power'] is False
+        assert 'door_open' not in detail and 'lights' not in detail
+        assert 'door_open' not in v.model_dump() and 'lights' not in v.model_dump()
+        schema = (await client.get('/openapi.json')).json()['components']['schemas']
+        assert set(schema['ControlRequest']['properties']) == {'power'}
+        assert schema['ControlRequest']['additionalProperties'] is False
+        assert 'VehicleLights' not in schema
+        html = (await client.get('/dashboard')).text
+        assert 'toggleDoor' not in html and 'toggleLight' not in html

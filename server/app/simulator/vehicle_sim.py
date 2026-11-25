@@ -10,7 +10,7 @@ import time
 from copy import deepcopy
 from app.simulator.road_network import road_path, path_length, snap_to_road
 from typing import Dict, List, Optional
-from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, TaskStatus, Gear, VehicleLights
+from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, TaskStatus, Gear
 from app.models.route import Stop, Route
 from app.simulator.c_track_data import INITIAL_STOPS, INITIAL_ROUTES, INITIAL_VEHICLES
 
@@ -96,7 +96,6 @@ class VehicleSimulator:
         )
         vehicle.gear = Gear.D
         vehicle.speed_kmh = 15.0
-        vehicle.door_open = False
         if self._waypoints[vehicle_id]:
             nxt = self._waypoints[vehicle_id][0]
             vehicle.heading = calculate_bearing_deg(vehicle.lat, vehicle.lng, nxt[0], nxt[1])
@@ -136,7 +135,7 @@ class VehicleSimulator:
             'task': vehicle.task,
             'path': deepcopy(plan['path']),
         }
-        vehicle.speed_kmh, vehicle.gear, vehicle.door_open = 15.0, Gear.D, False
+        vehicle.speed_kmh, vehicle.gear = 15.0, Gear.D
         if self._waypoints[vehicle_id]:
             nxt = self._waypoints[vehicle_id][0]
             vehicle.heading = calculate_bearing_deg(vehicle.lat, vehicle.lng, nxt[0], nxt[1])
@@ -173,7 +172,6 @@ class VehicleSimulator:
         )
         vehicle.gear = Gear.D
         vehicle.speed_kmh = 15.0
-        vehicle.door_open = False
         # 시작점까지 접근한 다음 route.path 전체를 순서대로 주행합니다.
         # stop_ids 최단 경로로 다시 계산하면 세부 시험 구간이 생략됩니다.
         self._target_queues[vehicle_id] = []
@@ -224,7 +222,7 @@ class VehicleSimulator:
         print(f"[Sim] 차량 {vehicle_id} 작업 취소 / 정차")
         return True
 
-    def control(self, vehicle_id: str, power: Optional[bool], door_open: Optional[bool], lights: Optional[VehicleLights]) -> bool:
+    def control(self, vehicle_id: str, power: bool) -> bool:
         vehicle = self.vehicles.get(vehicle_id)
         if not vehicle:
             return False
@@ -234,10 +232,6 @@ class VehicleSimulator:
             vehicle.power = power
             if not power:
                 self.stop(vehicle_id)
-        if door_open is not None:
-            vehicle.door_open = door_open
-        if lights is not None:
-            vehicle.lights = lights
         return True
 
     def report_fault(self, vehicle_id: str, fault_status: int, reason: Optional[str] = None) -> bool:
