@@ -4,6 +4,8 @@
 
 ---
 
+> 적용 안내: 기존 1~5장의 기본 규칙을 유지합니다. 아래에서 추가로 명시한 입력 검증·관제 오류 보완과 6장의 새 조회 필드는 `feature/vehicle-api-refinement`가 main에 병합된 뒤 적용합니다.
+
 ## 1. 기본 연결 및 인증 규격 (Authentication & Headers)
 
 * **서버 기본 주소 (`MOCK_BASE_URL`)**: `http://<서버_LAN_IP>:8000` (에뮬레이터: `http://10.0.2.2:8000`)
@@ -86,11 +88,21 @@ sequenceDiagram
   * 배차가 생성되면 정식 Neolix API인 `getCurrentMission`과 `getPlanningRoute`에도 해당 작업이 자동으로 연결됩니다.
   * 좌표 배차 시 `getCurrentMission`의 `startStationId`, `endStationId`는 고정 정류장과 구분하기 위해 **작업 전용 음수 ID**(예: `-2`, `-3`)가 부여됩니다.
 
+### 2.3 배차 입력 및 상태 제한
+
+- 좌표는 위도·경도를 함께 전송합니다. 기존 정류장 ID인 `target_stop_id`와 혼용하지 않습니다.
+- 목적지 누락, 좌표 일부 누락·범위 오류·혼용은 422입니다.
+- 진행 중·일시정지 작업은 덮어쓸 수 없습니다. 먼저 기존 작업을 취소해야 합니다.
+- 전원 OFF·오프라인·고장·`suspended` 등 배차 불가능 상태는 409입니다.
+- 실패한 배차는 기존 작업과 경로를 유지합니다. 경로 계산 실패는 422입니다.
+- 지원하지 않는 배차 종류는 기존처럼 400입니다. 순환 코스는 제공하지 않습니다.
+- 기본 정류장은 빈 배열입니다. 앱의 지도 호출은 좌표 배차를 사용합니다.
+
 ---
 
 ## 3. 차량 상태 및 주행 제어 공통 규칙 (State Transition Rules)
 
-앱과 서버는 전원, 배차, 일시정지, 재개, 취소 요청 시 아래의 동일한 상태 전이 규칙을 적용합니다. 조건에 맞지 않는 제어 요청은 HTTP `409 Conflict`입니다. 학생 앱 API는 `code: "MOCK_STATE"`, 관제 `/api/*`는 `detail` 형식을 사용합니다. 상세 조건과 추가 필드는 6장을 우선 적용합니다.
+앱과 서버는 전원, 배차, 일시정지, 재개, 취소 요청 시 아래의 동일한 상태 전이 규칙을 적용합니다. 조건에 맞지 않는 제어 요청은 HTTP `409 Conflict`입니다. 학생 앱 API는 `code: "MOCK_STATE"`, 관제 `/api/*`는 `detail` 형식을 사용합니다.
 
 ### 3.1 작업 상태 코드 (`missionStatus`)
 `POST /openapi-server/slvapi/getCurrentMission` 응답의 `missionStatus` 값 기준:
@@ -117,6 +129,32 @@ sequenceDiagram
 > * `driveMode`: 차량 전원 상태 (`1`: 전원 켜짐 / 자율주행 대기·주행 가능, `0`: 전원 꺼짐)
 > * `powerState`: 차량 네트워크 온라인 연결 여부 (`true`: 온라인, `false`: 오프라인)
 > * `vehicleAvailable` (`batchGetVehicleList`): `0` = 배차 이용 가능 (전원 ON + 온라인 + 진행 중 작업 없음), `1` = 이용 불가
+
+### 3.3 관제 API와 상태 제한 보완
+
+| 동작 | 관제 API | 학생 앱 API |
+|---|---|---|
+| 일시정지 | `POST /api/dispatch/{vehicle_id}/pause` | `POST /mock/vehicles/{vin}/pause` |
+| 재개 | `POST /api/dispatch/{vehicle_id}/resume` | `POST /mock/vehicles/{vin}/resume` |
+| 비상 정지/취소 | `POST /api/dispatch/{vehicle_id}/stop` | `POST /openapi-server/slvapi/vehicleCancel?vin={vin}` |
+
+허용 작업 단계는 3.2를 따릅니다. 일시정지한 작업에 pause, 주행 중 작업에 resume을 요청하면 409입니다.
+재개는 전원 ON·온라인·고장 없음·운영 구분 suspended 아님을 모두 만족해야 합니다.
+작업 없음·완료·취소 후 pause/resume은 409이며, 없는 차량은 404입니다.
+관제 stop은 주행 중에도 즉시 정차·취소할 수 있습니다. 학생 앱 vehicleCancel은 3.2대로 먼저 정차해야 합니다.
+운행 불가 상태로 바뀐 주행 작업은 다음 tick에서 경로를 보존하며 일시정지하고 자동 재개하지 않습니다.
+학생 앱 API는 1.2의 인증을 사용하며 관제 /api/*는 현재 인증이 없습니다.
+
+### 3.4 전원 제어 요청 형식
+
+| 경로 | 켜기 Body | 끄기 Body | 인증 |
+|---|---|---|---|
+| `POST /api/vehicles/{vehicle_id}/control` | `{"power":true}` | `{"power":false}` | 현재 없음 |
+| `POST /openapi-server/slvapi/powerOnOff` | `{"vin":"X3S1181","handleType":1}` | `{"vin":"X3S1181","handleType":2}` | 공통 Query/Header |
+
+전원 동작은 3.2를 따릅니다. 관제 power는 JSON true/false만 허용하며 문자열·숫자는 422입니다.
+빈 요청 또는 모든 제어 값 null도 422입니다. 학생 앱 handleType은 정수 1/2만 허용합니다.
+전원 ON은 고장 해제나 네트워크 복구를 의미하지 않습니다.
 
 ---
 
@@ -150,6 +188,24 @@ NT1 11/18 메시지 4번 항목(*"고장 신고 처리 방식, 사용자와의 �
       1. 차량이 주행 중(`missionStatus == 1`)이었다면 안전을 위해 즉시 **일시정지(`missionStatus = 2`, `speed = 0`, `gear = P`)**로 전환됩니다.
       2. `batchGetVehicleList` 조회 시 `faultStatus = 1`, `vehicleAvailable = 1`(배차 불가)로 반환되며, 고장이 해제(`faultStatus = 0`)되기 전까지 신규 배차 및 주행 재개(`resume`)가 제한(`409 MOCK_STATE`)됩니다.
 
+#### 고장 신고 입력과 해제 상세
+
+- `faultStatus`는 정수 0(해제), 1(신고)만 허용합니다. 문자열·불리언·다른 정수는 422입니다.
+- Body 생략 또는 `{}`는 기존 계약대로 신고(1)이며 `reason`은 선택 문자열입니다.
+- 4.3의 신고 정차는 오프라인에서도 즉시 적용하며 작업 ID와 경로를 유지합니다.
+- 해제 요청 `{"faultStatus":0}`은 신고 사유를 지우지만 작업을 자동 재개하지 않습니다.
+- 신규 신고 시 전달한 사유로 교체하며, 사유를 생략하면 null로 저장합니다.
+- 신고 상태 또는 LiDAR/Radar/Camera/IMU 이상이 있으면 배차·재개를 제한합니다.
+  신고를 해제해도 센서 이상이 남아 있으면 제한은 유지합니다.
+- 신고 응답 `faultStatus` 및 관제 `fault_status`는 수동 신고 상태입니다.
+  `batchGetVehicleList.faultStatus`는 신고와 센서 이상을 합친 종합 상태이므로 두 값은 다를 수 있습니다.
+
+성공 응답 예시:
+
+```json
+{"code":"10000","msg":"성공","data":{"vin":"X3S1181","faultStatus":1,"reason":"차량 점검 요청"}}
+```
+
 ### 4.4 구현 제외 항목 (NT1 확정 사항)
 차량 상세 화면 중 아래 7개 기능은 Mock 구현 범위에서 공식 제외합니다:
 * `10번` 상호작용 / `11번` 영상 모니터링 / `12번` 작업 로그 화면 / `13번` 위치 보정 / `18번` 문 열기 / `19번` 원격 수동 제어 / `20번` 조명
@@ -158,7 +214,7 @@ NT1 11/18 메시지 4번 항목(*"고장 신고 처리 방식, 사용자와의 �
 
 ## 5. 공통 오류 응답 규격 (Error Codes)
 
-학생 앱 API(`/openapi-server/slvapi/*`, `/mock/vehicles/*`)의 성공 응답은 `"code": "10000"`을 사용하며, 오류 발생 시 아래의 Mock 전용 오류 코드를 반환합니다. 관제 `/api/*` 오류는 6.7의 `detail` 형식을 사용합니다.
+학생 앱 API(`/openapi-server/slvapi/*`, `/mock/vehicles/*`)의 성공 응답은 `"code": "10000"`을 사용하며, 오류 발생 시 아래의 Mock 전용 오류 코드를 반환합니다. 관제 `/api/*` 오류 형식은 아래 5.1을 따릅니다.
 
 | HTTP Status | `code` | `msg` (한국어 메시지) | 발생 조건 |
 |:---:|---|---|---|
@@ -168,16 +224,21 @@ NT1 11/18 메시지 4번 항목(*"고장 신고 처리 방식, 사용자와의 �
 | `409` | `"MOCK_STATE"` | 상태별 상세 사유 반환 | 주행 중 취소/전원 Off 시도, 오프라인/전원 Off 차량 배차 시도 등 |
 | `422` | `"MOCK_INVALID"` | `"요청 필드 또는 형식 오류"` | 필수 Query/Header(`X-From`, `timeStamp`, `nonce`) 누락 또는 타입 불일치 |
 
+
+### 5.1 관제 API 오류 형식
+
+학생 앱 오류 코드는 위 표를 따릅니다. 관제 `/api/*`는 차량 없음 404, 상태 충돌 409, 입력/경로 오류 422입니다.
+관제 오류의 detail은 입력 검증 실패 시 배열, 상태/경로 오류 시 문자열입니다.
+관제 배차의 전원 OFF와 pause/resume 상태 오류는 기존 400에서 409로 통일합니다.
+지원하지 않는 배차 종류는 400을 유지합니다. 앱은 메시지 문구 대신 HTTP 상태와 오류 코드를 사용합니다.
+
 ---
 
-## 6. 차량 상태 구분 및 제어 상세 규칙
+## 6. 추가 차량 조회 필드
 
 ### 6.1 적용 범위
 
-이 장은 `feature/vehicle-api-refinement`의 API 변경 사항입니다. 기능 코드의 main 병합 후 적용하며, 병합 전 main 서버에는 기존 동작이 유지됩니다.
-
-차량 상세 화면의 운행 상태·작업 상태·주행 모드를 구분하고 배차·고장 신고·전원 제어 조건을 통일합니다.
-기존 인증 방식과 Neolix 요청·응답 필드의 의미는 유지합니다.
+새 조회 필드는 feature/vehicle-api-refinement의 main 병합 후 적용합니다. 제어 규칙은 2~5장을 따릅니다.
 
 ### 6.2 상태 조회 API와 추가 필드
 
@@ -230,105 +291,10 @@ NT1 11/18 메시지 4번 항목(*"고장 신고 처리 방식, 사용자와의 �
   전원이 켜진 고장 차량은 `standby`이므로 모드만 보고 배차 가능 여부를 판단하지 않습니다.
 - `task_status`의 완료·취소는 다음 배차까지 유지합니다. 전원 ON이나 반복 비상 정지로 지우지 않습니다.
   완료·취소 시 기존 `task`는 null일 수 있으므로 화면 작업 결과는 `task_status`로 확인합니다.
-- 기존 `missionStatus`는 1 주행 / 2 일시정지 / 3 완료 / 4 취소를 유지하며, 최초 작업 전에는 `data:null`입니다.
-- 기존 `driveMode`는 전원 1/0, `powerState`는 온라인 여부입니다. 새 `driving_mode`와 혼동하지 않습니다.
-- `vehicleAvailable`은 0 이용 가능 / 1 이용 불가입니다.
-  전원 ON·온라인·고장 없음·`suspended` 아님·속도 0·진행 중 작업 없음일 때만 0입니다.
+- 기존 missionStatus·driveMode·powerState는 3장의 의미를 유지합니다. 새 driving_mode와 기존 driveMode는 별개입니다.
 
-### 6.3 배차 입력 및 상태 제한
 
-좌표 배차 요청:
-
-```http
-POST /api/dispatch
-Content-Type: application/json
-```
-
-```json
-{"vehicle_id":"X3S1181","kind":"point","target_lat":36.7297202,"target_lng":127.4423425}
-```
-
-- 좌표는 위도·경도를 함께 전송합니다. 기존 정류장 ID인 `target_stop_id`와 혼용하지 않습니다.
-- 목적지 누락, 좌표 일부 누락·범위 오류·혼용은 422입니다.
-- 진행 중·일시정지 작업은 덮어쓸 수 없습니다. 먼저 기존 작업을 취소해야 합니다.
-- 전원 OFF·오프라인·고장·`suspended` 등 배차 불가능 상태는 409입니다.
-- 실패한 배차는 기존 작업과 경로를 유지합니다. 경로 계산 실패는 422입니다.
-- 지원하지 않는 배차 종류는 기존처럼 400입니다. 순환 코스는 제공하지 않습니다.
-- 기본 정류장은 빈 배열입니다. 앱의 지도 호출은 좌표 배차를 사용합니다.
-
-### 6.4 일시정지·재개·취소
-
-| 동작 | 관제 API | 학생 앱 API |
-|---|---|---|
-| 일시정지 | `POST /api/dispatch/{vehicle_id}/pause` | `POST /mock/vehicles/{vin}/pause` |
-| 재개 | `POST /api/dispatch/{vehicle_id}/resume` | `POST /mock/vehicles/{vin}/resume` |
-| 비상 정지/취소 | `POST /api/dispatch/{vehicle_id}/stop` | `POST /openapi-server/slvapi/vehicleCancel?vin={vin}` |
-
-- 학생 앱 API는 기존 공통 인증 Query/Header가 필요하며 관제 API는 현재 인증이 없습니다.
-- 일시정지는 전원 ON·온라인인 주행 작업에 적용합니다. 이미 일시정지한 작업의 반복 요청도 성공합니다.
-- 재개는 전원 ON·온라인·고장 없음·`suspended` 아님을 모두 만족해야 합니다.
-  이미 정상 주행 중인 작업의 반복 재개 요청은 성공합니다.
-- 작업 없음·완료·취소 후 pause/resume은 409입니다. 없는 차량은 404입니다.
-- 일시정지는 경로를 유지하고 속도 0 / 기어 P로 전환합니다. 재개하면 현재 위치에서 남은 경로를 이어갑니다.
-- 관제 stop은 주행 중에도 즉시 정차·취소합니다. 학생 앱 vehicleCancel은 정차 후에만 허용합니다.
-- 고장·오프라인·`suspended` 등 운행 불가 상태로 바뀐 작업은 다음 시뮬레이터 tick에서 이동 없이 일시정지합니다.
-  원인 해소만으로 자동 재개하지 않습니다.
-
-### 6.5 고장 신고와 해제
-
-`POST /mock/vehicles/{vin}/fault`에 기존 공통 인증 Query/Header를 사용합니다.
-
-```json
-{"faultStatus":1,"reason":"차량 점검 요청"}
-```
-
-- `faultStatus`는 정수 0(해제), 1(신고)만 허용합니다. 문자열·불리언·다른 정수는 422입니다.
-- Body 생략 또는 `{}`는 기존 계약대로 신고(1)이며 `reason`은 선택 문자열입니다.
-- 주행 중 신고는 오프라인 여부와 무관하게 즉시 일시정지합니다. 작업 ID와 경로를 유지합니다.
-- 해제 요청 `{"faultStatus":0}`은 신고 사유를 지우지만 작업을 자동 재개하지 않습니다.
-- 신규 신고 시 전달한 사유로 교체하며, 사유를 생략하면 null로 저장합니다.
-- 신고 상태 또는 LiDAR/Radar/Camera/IMU 이상이 있으면 배차·재개를 제한합니다.
-  신고를 해제해도 센서 이상이 남아 있으면 제한은 유지합니다.
-- 신고 응답 `faultStatus` 및 관제 `fault_status`는 수동 신고 상태입니다.
-  `batchGetVehicleList.faultStatus`는 신고와 센서 이상을 합친 종합 상태이므로 두 값은 다를 수 있습니다.
-
-성공 응답 예시:
-
-```json
-{"code":"10000","msg":"성공","data":{"vin":"X3S1181","faultStatus":1,"reason":"차량 점검 요청"}}
-```
-
-### 6.6 전원 제어
-
-| 경로 | 켜기 Body | 끄기 Body | 인증 |
-|---|---|---|---|
-| `POST /api/vehicles/{vehicle_id}/control` | `{"power":true}` | `{"power":false}` | 현재 없음 |
-| `POST /openapi-server/slvapi/powerOnOff` | `{"vin":"X3S1181","handleType":1}` | `{"vin":"X3S1181","handleType":2}` | 공통 Query/Header |
-
-- 관제 `power`는 JSON true/false만 허용합니다. `"false"`, 0, 1은 422입니다.
-- 관제 control에 `{}` 또는 모든 제어 값 null을 전송하면 422입니다.
-- 학생 앱 `handleType`은 정수 1/2만 허용합니다.
-- 주행 중 전원 OFF는 409이며 작업·경로·전원 상태를 유지합니다.
-- 정차 후 OFF는 남은 작업을 취소하고 경로를 제거합니다. ON으로 변경해도 취소한 작업은 재개하지 않습니다.
-- 전원 ON은 고장 해제나 네트워크 복구를 의미하지 않습니다.
-- 문 열기·조명 등 제외 기능은 신규 앱 구현 범위에 포함하지 않습니다. 기존 호환 경로만 유지합니다.
-
-### 6.7 API 계열별 오류 응답
-
-기존 5장의 `code/msg/data` 오류 규격은 학생 앱 API(`/openapi-server/slvapi/*`, `/mock/vehicles/*`)에 적용합니다.
-관제 `/api/*`는 FastAPI `detail` 형식을 사용합니다.
-
-| 상황 | HTTP | 학생 앱 API | 관제 API |
-|---|---|---|---|
-| 차량 없음 | 404 | `MOCK_NOT_FOUND` | `detail` 문자열 |
-| 현재 상태에서 제어 불가 | 409 | `MOCK_STATE` | `detail` 문자열 |
-| 입력 형식·필수 값 오류 | 422 | `MOCK_INVALID` | `detail` 배열 |
-| 경로 계산 오류 | 422 | `MOCK_INVALID` | `detail` 문자열 |
-
-관제 배차의 전원 OFF 오류 및 pause/resume 상태 오류는 과거 400에서 409로 변경했습니다.
-앱은 HTTP 상태와 오류 코드를 기준으로 처리하며 한국어 메시지 문구 자체를 판정 조건으로 사용하지 않습니다.
-
-### 6.8 차량 상세 정보
+### 6.3 차량 상세 정보
 
 차량 상세 화면은 `GET /api/vehicles/{vehicle_id}` 한 번으로 아래 정보를 조회할 수 있습니다.
 목록과 WebSocket도 동일한 차량 모델을 사용합니다. 기존 Neolix 응답 형식은 유지합니다.
@@ -356,7 +322,6 @@ Content-Type: application/json
 - `location_name`은 주행 후 현재 좌표 문자열로 갱신합니다. 주소 검색 결과나 고정 거점명이 아닙니다.
 - `sensors_available=false`(전원 OFF 또는 오프라인)이면 센서 수치 대신 수신 없음/빈 값을 표시합니다.
   응답의 `sensors` 객체는 호환을 위해 유지합니다. true여도 개별 센서 정상 여부는 각 `*_ok`로 판단합니다.
-- 센서 정상 여부·RTK FIX·위성 수·정확도·온도·주파수는 기존 시험 데이터입니다.
-  화면에는 별도 시험용 문구/배지를 표시하지 않습니다. 실제 센서 스트림은 구현하지 않았습니다.
-- `latency_ms`는 시뮬레이터 통신 지연이며 앱의 실제 네트워크 RTT가 아닙니다.
+- 센서 데이터의 성격과 차량 제원은 4.3을 따릅니다. 화면에는 별도 시험용 문구/배지를 표시하지 않습니다.
+- 네트워크 지연은 4.2를 따릅니다. latency_ms는 앱의 실제 RTT가 아닙니다.
 - 정차·전원 OFF·오프라인 차량도 조회 목록에 포함합니다. 값 수신 여부와 상태를 함께 판단합니다.
