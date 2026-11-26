@@ -2,15 +2,25 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AccessibilityInfo, Animated, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { WarningIcon } from '@/components/icons';
+import { InfoIcon, WarningIcon } from '@/components/icons';
 import { colors, radius, typography } from '@/theme';
 
 /** 토스트가 떠 있는 시간 */
 const TOAST_DURATION_MS = 3000;
 
+/**
+ * 토스트 종류 (Figma: Toast)
+ * - warning: 요청 거절·실패 (노란 경고 아이콘)
+ * - info: 준비 중·추후 지원 같은 단순 안내 (흰 정보 아이콘)
+ */
+export type ToastTone = 'warning' | 'info';
+
 type ToastContextValue = {
-  /** 화면 아래쪽에 짧은 안내를 3초 동안 보여 줍니다. 예) showToast('주행 중에는 전원을 끌 수 없어요') */
-  showToast: (message: string) => void;
+  /**
+   * 화면 아래쪽에 짧은 안내를 3초 동안 보여 줍니다.
+   * 예) showToast('주행 중에는 전원을 끌 수 없어요'), showToast('추후 지원 예정인 기능이에요', 'info')
+   */
+  showToast: (message: string, tone?: ToastTone) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -21,10 +31,12 @@ const ToastContext = createContext<ToastContextValue | null>(null);
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState<string | null>(null);
+  const [tone, setTone] = useState<ToastTone>('warning');
   const [seq, setSeq] = useState(0);
 
-  const showToast = useCallback((text: string) => {
+  const showToast = useCallback((text: string, nextTone: ToastTone = 'warning') => {
     setMessage(text);
+    setTone(nextTone);
     setSeq((n) => n + 1);
     AccessibilityInfo.announceForAccessibility(text);
   }, []);
@@ -34,7 +46,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {message !== null && <ToastView key={seq} message={message} onHidden={() => setMessage(null)} />}
+      {message !== null && <ToastView key={seq} message={message} tone={tone} onHidden={() => setMessage(null)} />}
     </ToastContext.Provider>
   );
 }
@@ -45,7 +57,7 @@ export function useToast() {
   return ctx;
 }
 
-function ToastView({ message, onHidden }: { message: string; onHidden: () => void }) {
+function ToastView({ message, tone, onHidden }: { message: string; tone: ToastTone; onHidden: () => void }) {
   const insets = useSafeAreaInsets();
   const opacity = useRef(new Animated.Value(0)).current;
   const hiddenRef = useRef(onHidden);
@@ -69,7 +81,11 @@ function ToastView({ message, onHidden }: { message: string; onHidden: () => voi
       accessibilityLiveRegion="polite"
       style={[styles.toast, { bottom: insets.bottom + 24, opacity, transform: [{ translateY }] }]}
     >
-      <WarningIcon width={18} height={18} color={colors.warn} />
+      {tone === 'info' ? (
+        <InfoIcon width={18} height={18} color={colors.onInk} />
+      ) : (
+        <WarningIcon width={18} height={18} color={colors.warn} />
+      )}
       <Text style={styles.message}>{message}</Text>
     </Animated.View>
   );

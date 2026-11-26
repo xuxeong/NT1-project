@@ -1,10 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CancelTaskDialog } from '@/components/ConfirmDialog';
+import { CancelTaskDialog, ConfirmDialog } from '@/components/ConfirmDialog';
 import { FaultCard } from '@/components/FaultCard';
 import { FaultReportModal } from '@/components/FaultReportModal';
 import { ErrorState } from '@/components/ErrorState';
@@ -65,8 +65,6 @@ const OPERATION: Record<OperationStatus, { label: string; tone: ChipTone }> = {
 /** 닫기: 이전 화면이 없으면(링크·알림으로 바로 열린 경우) 차량 목록으로 이동합니다. */
 const closeDetail = () => (router.canGoBack() ? router.back() : router.replace('/'));
 
-/** 구현 범위에서 제외된 제어 기능 (NT1 11/16 확정). 화면에는 두고 누르면 안내만 합니다. */
-const comingSoon = (name: string) => () => Alert.alert(name, '추후 지원 예정인 기능이에요.');
 
 /**
  * 차량 상세 (Figma: 차량 상세 화면 · 대기 / 작업 중 / 일시 정지 / 전원 꺼짐).
@@ -81,6 +79,8 @@ export default function VehicleDetailScreen() {
   const insets = useSafeAreaInsets();
   const userLocation = useUserLocation();
   const { showToast } = useToast();
+  /** 구현 범위에서 제외된 제어 기능 (NT1 11/16 확정). 화면에는 두고 누르면 안내만 합니다. */
+  const comingSoon = () => showToast('추후 지원 예정인 기능이에요', 'info');
   const { data, loading, error, reload } = useAsync(() => fetchMockVehicle(vin), [vin]);
   const [vehicle, setVehicle] = useState<Vehicle | undefined>(undefined);
   /** 서버 응답을 기다리는 제어 요청 (그동안 해당 버튼에 로딩 표시) */
@@ -90,6 +90,7 @@ export default function VehicleDetailScreen() {
   const [driveTypeOpen, setDriveTypeOpen] = useState(false);
   const [sensorSheetOpen, setSensorSheetOpen] = useState(false);
   const [faultOpen, setFaultOpen] = useState(false);
+  const [powerOffConfirmOpen, setPowerOffConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (data) setVehicle(data);
@@ -199,10 +200,7 @@ export default function VehicleDetailScreen() {
       showToast('주행 중에는 전원을 끌 수 없어요');
       return;
     }
-    Alert.alert('전원을 끌까요?', paused ? '일시정지 중인 작업은 취소돼요.' : '전원을 다시 켜기 전까지 배차할 수 없어요.', [
-      { text: '취소', style: 'cancel' },
-      { text: '끄기', style: 'destructive', onPress: () => act('powerOff') },
-    ]);
+    setPowerOffConfirmOpen(true);
   };
 
   return (
@@ -368,15 +366,15 @@ export default function VehicleDetailScreen() {
             <Text style={styles.sectionTitle}>차량 제어</Text>
             <View style={styles.controlGrid}>
               <View style={styles.controlRow}>
-                <ControlItem icon={<SpeakerIcon width={24} height={24} />} label="상호작용" onPress={comingSoon('상호작용')} />
-                <ControlItem icon={<MonitoringIcon width={24} height={24} />} label="모니터링" onPress={comingSoon('모니터링')} />
-                <ControlItem icon={<LogIcon width={24} height={24} />} label="작업 로그" onPress={comingSoon('작업 로그')} />
-                <ControlItem icon={<CalibrateIcon width={24} height={24} />} label="보정" onPress={comingSoon('보정')} />
+                <ControlItem icon={<SpeakerIcon width={24} height={24} />} label="상호작용" onPress={comingSoon} />
+                <ControlItem icon={<MonitoringIcon width={24} height={24} />} label="모니터링" onPress={comingSoon} />
+                <ControlItem icon={<LogIcon width={24} height={24} />} label="작업 로그" onPress={comingSoon} />
+                <ControlItem icon={<CalibrateIcon width={24} height={24} />} label="보정" onPress={comingSoon} />
               </View>
               <View style={styles.controlRow}>
-                <ControlItem icon={<DoorIcon width={24} height={24} />} label="문 열기" onPress={comingSoon('문 열기')} />
-                <ControlItem icon={<GamepadIcon width={24} height={24} />} label="원격 제어" onPress={comingSoon('원격 제어')} />
-                <ControlItem icon={<BulbIcon width={24} height={24} />} label="조명" onPress={comingSoon('조명')} />
+                <ControlItem icon={<DoorIcon width={24} height={24} />} label="문 열기" onPress={comingSoon} />
+                <ControlItem icon={<GamepadIcon width={24} height={24} />} label="원격 제어" onPress={comingSoon} />
+                <ControlItem icon={<BulbIcon width={24} height={24} />} label="조명" onPress={comingSoon} />
                 {poweredOff ? (
                   <ControlItem icon={<PowerIcon width={24} height={24} color={colors.accent} />} label="전원 ON" tone="accent" loading={pending === 'powerOn'} onPress={onPowerPress} />
                 ) : (
@@ -395,7 +393,11 @@ export default function VehicleDetailScreen() {
           setDriveTypeOpen(false);
           router.push({ pathname: '/route-setup/[vin]', params: { vin: vehicle.vin } });
         }}
-        onSelectTrial={() => Alert.alert('시범 운행', '시범 운행은 준비 중이에요.')}
+        onSelectTrial={() => {
+          // 바텀 시트(Modal) 위에서는 토스트가 가려지므로 시트를 닫고 안내합니다.
+          setDriveTypeOpen(false);
+          showToast('시범 운행은 준비 중이에요', 'info');
+        }}
       />
       <TaskInfoSheet
         visible={taskSheetOpen}
@@ -413,6 +415,17 @@ export default function VehicleDetailScreen() {
         onSubmit={reportFault}
       />
       <SensorStatusSheet visible={sensorSheetOpen} vehicle={vehicle} onClose={() => setSensorSheetOpen(false)} />
+      <ConfirmDialog
+        visible={powerOffConfirmOpen}
+        title="전원을 끌까요?"
+        body={paused ? '일시정지 중인 작업은 취소돼요.' : '전원을 다시 켜기 전까지 배차할 수 없어요.'}
+        confirmLabel="끄기"
+        onClose={() => setPowerOffConfirmOpen(false)}
+        onConfirm={() => {
+          setPowerOffConfirmOpen(false);
+          act('powerOff');
+        }}
+      />
       <CancelTaskDialog
         visible={cancelDialogOpen}
         onClose={() => setCancelDialogOpen(false)}

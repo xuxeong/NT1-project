@@ -18,6 +18,7 @@ export { default as ClearIcon } from '../../assets/icons/clear.svg';
 // 차량 상세 화면
 export { default as SensorIcon } from '../../assets/icons/sensor.svg';
 export { default as WarningIcon } from '../../assets/icons/warning.svg'; // [색을 바꿔 쓰는 아이콘]
+export { default as InfoIcon } from '../../assets/icons/info.svg'; // [색을 바꿔 쓰는 아이콘] 단순 안내 토스트
 export { default as CheckCircleIcon } from '../../assets/icons/check-circle.svg'; // 초록 원 + 흰 체크 (센서 정상)
 export { default as Pin20Icon } from '../../assets/icons/pin-20.svg';
 export { default as NavigationIcon } from '../../assets/icons/navigation.svg';
