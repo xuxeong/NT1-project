@@ -5,24 +5,26 @@ import { colors, typography } from '@/theme';
 
 type Props = {
   visible: boolean;
+  title: string;
+  body: string;
+  /** 빨간 확인 버튼 문구. 예) '작업 취소', '신고' */
+  confirmLabel: string;
   onClose: () => void;
   onConfirm: () => void;
 };
 
-/** 작업 취소 확인 창 */
-export function CancelTaskDialog({ visible, onClose, onConfirm }: Props) {
+/** 되돌리기 어려운 동작 전에 한 번 더 묻는 확인 창 (Figma: 작업 취소 확인 창) */
+export function ConfirmDialog({ visible, title, body, confirmLabel, onClose, onConfirm }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.backdrop}>
         <View style={styles.card} accessibilityViewIsModal>
           <View style={styles.iconWrap}>
-            <WarningIcon width={24} height={24} />
+            <WarningIcon width={24} height={24} color={colors.danger} />
           </View>
           <View style={styles.texts}>
-            <Text style={styles.title}>작업을 취소할까요?</Text>
-            <Text style={styles.body}>
-              {'주행 중인 차량을 먼저 멈춘 뒤 작업을 취소해요.\n취소한 작업은 되돌릴 수 없어요.'}
-            </Text>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.body}>{body}</Text>
           </View>
           <View style={styles.buttons}>
             <Pressable
@@ -37,7 +39,7 @@ export function CancelTaskDialog({ visible, onClose, onConfirm }: Props) {
               onPress={onConfirm}
               style={({ pressed }) => [styles.button, styles.confirm, pressed && styles.pressed]}
             >
-              <Text style={[styles.buttonLabel, { color: colors.onInk }]}>작업 취소</Text>
+              <Text style={[styles.buttonLabel, { color: colors.onInk }]}>{confirmLabel}</Text>
             </Pressable>
           </View>
         </View>
@@ -84,3 +86,15 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.85 },
   buttonLabel: typography.button16,
 });
+
+/** 작업 취소 확인 창 */
+export function CancelTaskDialog(props: { visible: boolean; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <ConfirmDialog
+      {...props}
+      title="작업을 취소할까요?"
+      body={'주행 중인 차량을 먼저 멈춘 뒤 작업을 취소해요.\n취소한 작업은 되돌릴 수 없어요.'}
+      confirmLabel="작업 취소"
+    />
+  );
+}

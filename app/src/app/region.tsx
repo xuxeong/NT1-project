@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BackIcon, RadioOffIcon, RadioOnIcon, SearchIcon } from '@/components/icons';
 import { REGION_CITY, REGION_PROVINCE, REGION_PROVINCE_INITIAL } from '@/constants/region';
 import { MOCK_VEHICLES } from '@/mocks/vehicles';
+import { useToast } from '@/state/toast';
 import { useVehicleFilter } from '@/state/vehicleFilter';
 import { colors, radius, typography } from '@/theme';
 import { OutlineButton, PrimaryButton } from '@/ui';
@@ -21,6 +22,7 @@ const COL = { index: 28, province: 112, city: 62 };
 export default function RegionSelectScreen() {
   const insets = useSafeAreaInsets();
   const { draft, setDraft } = useVehicleFilter();
+  const { showToast } = useToast();
   const [aoi, setAoi] = useState<string | null>(draft.aoi);
 
   // TODO: 서버 연동 후에는 서버에서 받은 차량 목록으로 바꿔 주세요.
@@ -35,7 +37,7 @@ export default function RegionSelectScreen() {
         <Text style={styles.title}>운영 구역 선택</Text>
         <Pressable
           style={styles.iconButton}
-          onPress={() => Alert.alert('구역 검색', '구역 검색은 준비 중이에요.')}
+          onPress={() => showToast('구역 검색은 준비 중이에요', 'info')}
           accessibilityRole="button"
           accessibilityLabel="구역 검색"
         >

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Close24Icon, DiamondIcon, PlusIcon } from '@/components/icons';
@@ -8,6 +8,7 @@ import { StopRow } from '@/components/StopRow';
 import { findStation, MOCK_STATIONS } from '@/mocks/stations';
 import { findMockVehicle } from '@/mocks/vehicles';
 import { useRouteDraft } from '@/state/routeDraft';
+import { useToast } from '@/state/toast';
 import { colors, typography } from '@/theme';
 import { PrimaryButton } from '@/ui';
 import { haversineMeters } from '@/utils/geo';
@@ -22,6 +23,7 @@ export default function RouteSetupScreen() {
   const { vin } = useLocalSearchParams<{ vin: string }>();
   const insets = useSafeAreaInsets();
   const { draft, reset, addStop, removeStop } = useRouteDraft();
+  const { showToast } = useToast();
 
   // 화면을 열 때마다 새로 시작: 출발지 = 차량 현재 위치에서 가장 가까운 지점
   useEffect(() => {
@@ -40,9 +42,10 @@ export default function RouteSetupScreen() {
 
   const openSelect = (key: string) => router.push({ pathname: '/stop-select', params: { key } });
 
+  // TODO: 서버 연동 후 출발 요청(vehicleStart/v1 또는 좌표 배차)을 보내고, 성공하면 출발 카운트다운으로 이어집니다.
   const confirm = () => {
-    const names = stops.map((s) => findStation(s.stationId)?.name ?? '').join(' → ');
-    Alert.alert('출발 요청', `서버 연동 후 출발 요청이 전송돼요.\n\n${names}`, [{ text: '확인', onPress: () => router.back() }]);
+    showToast('서버 연동 후 출발 요청이 전송돼요', 'info');
+    router.back();
   };
 
   return (
@@ -83,7 +86,7 @@ export default function RouteSetupScreen() {
                 removable={s.kind !== 'start'}
                 selectable={s.kind !== 'start'} // 출발지는 현재 위치로 고정
                 onPress={() => openSelect(s.key)}
-                onContactPress={() => Alert.alert('담당자', '담당자 입력은 준비 중이에요.')}
+                onContactPress={() => showToast('담당자 입력은 준비 중이에요', 'info')}
                 onRemove={() => removeStop(s.key)}
               />
             </View>

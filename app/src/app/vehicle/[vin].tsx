@@ -1,10 +1,13 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CancelTaskDialog } from '@/components/CancelTaskDialog';
+import { CancelTaskDialog, ConfirmDialog } from '@/components/ConfirmDialog';
+import { FaultCard } from '@/components/FaultCard';
+import { FaultReportModal } from '@/components/FaultReportModal';
+import { ErrorState } from '@/components/ErrorState';
 import {
   BulbIcon,
   CalibrateIcon,
@@ -27,12 +30,17 @@ import {
   WarningIcon,
 } from '@/components/icons';
 import { OsmMap } from '@/components/OsmMap';
+import { SkeletonGroup, VehicleDetailSkeleton } from '@/components/Skeleton';
 import { StatusChip, type ChipTone } from '@/components/StatusChip';
 import { DriveTypeSheet } from '@/components/DriveTypeSheet';
+import { SensorStatusSheet } from '@/components/SensorStatusSheet';
 import { TaskInfoSheet } from '@/components/TaskInfoSheet';
+import { C_TRACK_CENTER } from '@/constants/map';
+import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
-import { applyMockAction, type VehicleAction } from '@/mocks/vehicleActions';
-import { findMockVehicle } from '@/mocks/vehicles';
+import { fetchMockVehicle, sendMockAction, sendMockFaultReport } from '@/mocks/mockServer';
+import type { VehicleAction } from '@/mocks/vehicleActions';
+import { useToast } from '@/state/toast';
 import { colors, radius, typography } from '@/theme';
 import type { OperationStatus, Vehicle } from '@/types/vehicle';
 import {
@@ -54,36 +62,126 @@ const OPERATION: Record<OperationStatus, { label: string; tone: ChipTone }> = {
   suspended: { label: '운행 중지', tone: 'danger' },
 };
 
-/** 구현 범위에서 제외된 제어 기능 (NT1 11/16 확정). 화면에는 두고 누르면 안내만 합니다. */
-const comingSoon = (name: string) => () => Alert.alert(name, '추후 지원 예정인 기능이에요.');
+/** 닫기: 이전 화면이 없으면(링크·알림으로 바로 열린 경우) 차량 목록으로 이동합니다. */
+const closeDetail = () => (router.canGoBack() ? router.back() : router.replace('/'));
+
 
 /**
  * 차량 상세 (Figma: 차량 상세 화면 · 대기 / 작업 중 / 일시 정지 / 전원 꺼짐).
  * 차량 상태에 따라 가운데 영역과 버튼이 바뀝니다.
  *
- * 지금은 서버 연동 전이라 버튼을 누르면 화면 안에서만 상태가 바뀝니다 (mocks/vehicleActions.ts).
+ * 지금은 서버 연동 전이라 버튼을 누르면 화면 안에서만 상태가 바뀝니다 (mocks/mockServer.ts).
+ * 불러오는 중에는 회색 뼈대, 실패하면 오류 안내, 버튼 요청 중에는 버튼 로딩, 요청 실패는 토스트로 보여 줍니다.
  * TODO(한정혁): 서버 API 응답으로 vehicle 상태를 갱신하도록 바꿔 주세요.
  */
 export default function VehicleDetailScreen() {
   const { vin } = useLocalSearchParams<{ vin: string }>();
   const insets = useSafeAreaInsets();
   const userLocation = useUserLocation();
-  const [vehicle, setVehicle] = useState<Vehicle | undefined>(() => findMockVehicle(vin));
+  const { showToast } = useToast();
+  /** 구현 범위에서 제외된 제어 기능 (NT1 11/16 확정). 화면에는 두고 누르면 안내만 합니다. */
+  const comingSoon = () => showToast('추후 지원 예정인 기능이에요', 'info');
+  const { data, loading, error, reload } = useAsync(() => fetchMockVehicle(vin), [vin]);
+  const [vehicle, setVehicle] = useState<Vehicle | undefined>(undefined);
+  /** 서버 응답을 기다리는 제어 요청 (그동안 해당 버튼에 로딩 표시) */
+  const [pending, setPending] = useState<VehicleAction | null>(null);
   const [taskSheetOpen, setTaskSheetOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [driveTypeOpen, setDriveTypeOpen] = useState(false);
+  const [sensorSheetOpen, setSensorSheetOpen] = useState(false);
+  const [faultOpen, setFaultOpen] = useState(false);
+  const [powerOffConfirmOpen, setPowerOffConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    if (data) setVehicle(data);
+  }, [data]);
+
+  const topBar = (onSensorsPress?: () => void, onFaultPress?: () => void) => (
+    <View style={[styles.topBar, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
+      <FloatingButton label="닫기" onPress={closeDetail}>
+        <CloseIcon width={18} height={18} color={colors.ink} />
+      </FloatingButton>
+      <View style={styles.topActions}>
+        <FloatingButton label="센서 상태" onPress={onSensorsPress}>
+          <SensorIcon width={18} height={18} />
+        </FloatingButton>
+        <FloatingButton
+          label="고장 신고"
+          style={styles.faultButton}
+          onPress={onFaultPress}
+        >
+          <WarningIcon width={16} height={16} color={colors.danger} />
+          <Text style={styles.faultLabel}>고장 신고</Text>
+        </FloatingButton>
+      </View>
+    </View>
+  );
+
+  // 처음 불러오는 중이거나 실패: 지도(C-Track) + 시트에 회색 뼈대 또는 오류 안내
+  if (!vehicle && (loading || error)) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.mapArea}>
+          <OsmMap
+            key="loading"
+            style={StyleSheet.absoluteFill}
+            attributionStyle={styles.attribution}
+            initialRegion={{
+              latitude: C_TRACK_CENTER.lat,
+              longitude: C_TRACK_CENTER.lng,
+              latitudeDelta: 0.004,
+              longitudeDelta: 0.004,
+            }}
+          />
+          {topBar()}
+        </View>
+        <View style={styles.sheet}>
+          <View style={[styles.sheetContent, { paddingBottom: 8 + insets.bottom }]}>
+            <View style={styles.handle} />
+            {error && !loading ? (
+              <ErrorState surface="sheet" onRetry={reload} style={styles.sheetError} />
+            ) : (
+              <SkeletonGroup>
+                <VehicleDetailSkeleton />
+              </SkeletonGroup>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   if (!vehicle) {
     return (
       <View style={[styles.notFound, { paddingTop: insets.top }]}>
         <Text style={styles.notFoundText}>차량을 찾을 수 없어요.</Text>
-        <SecondaryButton label="목록으로" onPress={() => router.back()} />
+        <SecondaryButton label="목록으로" onPress={closeDetail} />
       </View>
     );
   }
 
-  const act = (...actions: VehicleAction[]) =>
-    setVehicle((v) => (v ? actions.reduce((acc, a) => applyMockAction(acc, a), v) : v));
+  /** 제어 요청을 보내고, 성공하면 바뀐 상태로 화면을 갱신합니다. 실패하면 토스트로 알립니다. */
+  const act = async (...actions: VehicleAction[]) => {
+    if (pending) return;
+    setPending(actions[actions.length - 1]);
+    try {
+      let next = vehicle;
+      for (const a of actions) next = await sendMockAction(next, a);
+      setVehicle(next);
+    } catch {
+      showToast('요청을 보내지 못했어요. 다시 시도해 주세요');
+    } finally {
+      setPending(null);
+    }
+  };
+
+  /** 고장 신고 (FaultReportModal에서 호출). 실패하면 예외를 그대로 넘겨 화면에 오류 문구를 띄웁니다. */
+  const reportFault = async (reason: string) => {
+    const next = await sendMockFaultReport(vehicle, reason);
+    setVehicle(next);
+    setFaultOpen(false);
+    showToast('고장 신고를 접수했어요');
+  };
 
   const poweredOff = vehicle.driveMode === 0;
   const inMission = !poweredOff && (vehicle.missionStatus === 1 || vehicle.missionStatus === 2);
@@ -99,22 +197,10 @@ export default function VehicleDetailScreen() {
       return;
     }
     if (vehicle.speed > 0) {
-      Alert.alert('전원 끄기', '주행 중에는 전원을 끌 수 없어요. 먼저 일시정지해 주세요.');
+      showToast('주행 중에는 전원을 끌 수 없어요');
       return;
     }
-    Alert.alert('전원을 끌까요?', paused ? '일시정지 중인 작업은 취소돼요.' : '전원을 다시 켜기 전까지 배차할 수 없어요.', [
-      { text: '취소', style: 'cancel' },
-      { text: '끄기', style: 'destructive', onPress: () => act('powerOff') },
-    ]);
-  };
-
-  const showSensors = () => {
-    const s = vehicle.sensors;
-    const ok = (v: boolean) => (v ? '정상' : '이상');
-    Alert.alert(
-      '센서 상태',
-      `LiDAR ${ok(s.lidar_ok)} · 레이더 ${ok(s.radar_ok)}\n카메라 ${ok(s.camera_ok)} · IMU ${ok(s.imu_ok)}\nGNSS ${s.gnss_fix} · 온도 ${s.temperature_c}℃`,
-    );
+    setPowerOffConfirmOpen(true);
   };
 
   return (
@@ -122,7 +208,9 @@ export default function VehicleDetailScreen() {
       {/* ── 지도 ── */}
       <View style={styles.mapArea}>
         <OsmMap
+          key={vehicle.vin}
           style={StyleSheet.absoluteFill}
+          attributionStyle={styles.attribution}
           initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.004, longitudeDelta: 0.004 }}
           // 위쪽 버튼 줄과 아래 시트에 가려지지 않는 영역의 가운데에 차량이 오도록 여백을 줍니다.
           mapPadding={{ top: insets.top + 48, right: 0, bottom: 24, left: 0 }}
@@ -131,24 +219,10 @@ export default function VehicleDetailScreen() {
             <VehicleMarkerIcon width={48} height={48} />
           </Marker>
         </OsmMap>
-        <View style={[styles.topBar, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
-          <FloatingButton label="닫기" onPress={() => router.back()}>
-            <CloseIcon width={18} height={18} color={colors.ink} />
-          </FloatingButton>
-          <View style={styles.topActions}>
-            <FloatingButton label="센서 상태" onPress={showSensors}>
-              <SensorIcon width={18} height={18} />
-            </FloatingButton>
-            <FloatingButton
-              label="고장 신고"
-              style={styles.faultButton}
-              onPress={() => Alert.alert('고장 신고', '고장 신고 화면은 준비 중이에요.')}
-            >
-              <WarningIcon width={16} height={16} />
-              <Text style={styles.faultLabel}>고장 신고</Text>
-            </FloatingButton>
-          </View>
-        </View>
+        {topBar(
+          () => setSensorSheetOpen(true),
+          () => setFaultOpen(true),
+        )}
       </View>
 
       {/* ── 바텀 시트 ── */}
@@ -206,6 +280,14 @@ export default function VehicleDetailScreen() {
             )}
           </View>
 
+          {vehicle.faultReport && (
+            <FaultCard
+              report={vehicle.faultReport}
+              clearing={pending === 'clearFault'}
+              onClear={() => act('clearFault')}
+            />
+          )}
+
           {inMission ? (
             /* 이동 정보 카드(누르면 작업 정보) + 일시정지/주행 재개. 카드와 버튼 사이 20px */
             <View style={styles.taskArea}>
@@ -235,12 +317,14 @@ export default function VehicleDetailScreen() {
                   label="주행 재개"
                   icon={<PlayOnAccentIcon width={20} height={20} />}
                   disabled={vehicle.faultStatus === 1}
+                  loading={pending === 'resume'}
                   onPress={() => act('resume')}
                 />
               ) : (
                 <SecondaryButton
                   label="일시정지"
                   icon={<PauseIcon width={20} height={20} />}
+                  loading={pending === 'pause'}
                   onPress={() => act('pause')}
                 />
               )}
@@ -282,19 +366,19 @@ export default function VehicleDetailScreen() {
             <Text style={styles.sectionTitle}>차량 제어</Text>
             <View style={styles.controlGrid}>
               <View style={styles.controlRow}>
-                <ControlItem icon={<SpeakerIcon width={24} height={24} />} label="상호작용" onPress={comingSoon('상호작용')} />
-                <ControlItem icon={<MonitoringIcon width={24} height={24} />} label="모니터링" onPress={comingSoon('모니터링')} />
-                <ControlItem icon={<LogIcon width={24} height={24} />} label="작업 로그" onPress={comingSoon('작업 로그')} />
-                <ControlItem icon={<CalibrateIcon width={24} height={24} />} label="보정" onPress={comingSoon('보정')} />
+                <ControlItem icon={<SpeakerIcon width={24} height={24} />} label="상호작용" onPress={comingSoon} />
+                <ControlItem icon={<MonitoringIcon width={24} height={24} />} label="모니터링" onPress={comingSoon} />
+                <ControlItem icon={<LogIcon width={24} height={24} />} label="작업 로그" onPress={comingSoon} />
+                <ControlItem icon={<CalibrateIcon width={24} height={24} />} label="보정" onPress={comingSoon} />
               </View>
               <View style={styles.controlRow}>
-                <ControlItem icon={<DoorIcon width={24} height={24} />} label="문 열기" onPress={comingSoon('문 열기')} />
-                <ControlItem icon={<GamepadIcon width={24} height={24} />} label="원격 제어" onPress={comingSoon('원격 제어')} />
-                <ControlItem icon={<BulbIcon width={24} height={24} />} label="조명" onPress={comingSoon('조명')} />
+                <ControlItem icon={<DoorIcon width={24} height={24} />} label="문 열기" onPress={comingSoon} />
+                <ControlItem icon={<GamepadIcon width={24} height={24} />} label="원격 제어" onPress={comingSoon} />
+                <ControlItem icon={<BulbIcon width={24} height={24} />} label="조명" onPress={comingSoon} />
                 {poweredOff ? (
-                  <ControlItem icon={<PowerIcon width={24} height={24} color={colors.accent} />} label="전원 ON" tone="accent" onPress={onPowerPress} />
+                  <ControlItem icon={<PowerIcon width={24} height={24} color={colors.accent} />} label="전원 ON" tone="accent" loading={pending === 'powerOn'} onPress={onPowerPress} />
                 ) : (
-                  <ControlItem icon={<PowerIcon width={24} height={24} color={colors.danger} />} label="전원 OFF" tone="danger" onPress={onPowerPress} />
+                  <ControlItem icon={<PowerIcon width={24} height={24} color={colors.danger} />} label="전원 OFF" tone="danger" loading={pending === 'powerOff'} onPress={onPowerPress} />
                 )}
               </View>
             </View>
@@ -309,7 +393,11 @@ export default function VehicleDetailScreen() {
           setDriveTypeOpen(false);
           router.push({ pathname: '/route-setup/[vin]', params: { vin: vehicle.vin } });
         }}
-        onSelectTrial={() => Alert.alert('시범 운행', '시범 운행은 준비 중이에요.')}
+        onSelectTrial={() => {
+          // 바텀 시트(Modal) 위에서는 토스트가 가려지므로 시트를 닫고 안내합니다.
+          setDriveTypeOpen(false);
+          showToast('시범 운행은 준비 중이에요', 'info');
+        }}
       />
       <TaskInfoSheet
         visible={taskSheetOpen}
@@ -318,6 +406,24 @@ export default function VehicleDetailScreen() {
         onCancelPress={() => {
           setTaskSheetOpen(false);
           setCancelDialogOpen(true);
+        }}
+      />
+      <FaultReportModal
+        visible={faultOpen}
+        vehicle={vehicle}
+        onClose={() => setFaultOpen(false)}
+        onSubmit={reportFault}
+      />
+      <SensorStatusSheet visible={sensorSheetOpen} vehicle={vehicle} onClose={() => setSensorSheetOpen(false)} />
+      <ConfirmDialog
+        visible={powerOffConfirmOpen}
+        title="전원을 끌까요?"
+        body={paused ? '일시정지 중인 작업은 취소돼요.' : '전원을 다시 켜기 전까지 배차할 수 없어요.'}
+        confirmLabel="끄기"
+        onClose={() => setPowerOffConfirmOpen(false)}
+        onConfirm={() => {
+          setPowerOffConfirmOpen(false);
+          act('powerOff');
         }}
       />
       <CancelTaskDialog
@@ -343,6 +449,8 @@ const styles = StyleSheet.create({
   mapArea: { flex: 1, minHeight: 200, marginBottom: -24, backgroundColor: '#E8ECF1' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
   topActions: { flexDirection: 'row', gap: 8 },
+  // 바텀 시트가 지도 아래 24를 덮으므로 OSM 출처 표시를 그 위로 올립니다
+  attribution: { bottom: 28 },
   faultButton: { paddingLeft: 12, paddingRight: 14 },
   faultLabel: { ...typography.label12, color: colors.ink },
 
@@ -357,6 +465,8 @@ const styles = StyleSheet.create({
   sheetScroll: { flexGrow: 0 },
   sheetContent: { paddingHorizontal: 20, paddingTop: 8, gap: 16 },
   handle: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.hairline },
+  // 오류 안내가 시트 가운데쯤 오도록 위아래 여백 (Figma: 차량 상세 화면 · 연결 오류)
+  sheetError: { paddingTop: 72, paddingBottom: 120 },
 
   infoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   vehicleImage: { width: 120, height: 105 },

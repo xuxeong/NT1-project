@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 
 import { RouteDraftProvider } from '@/state/routeDraft';
+import { ToastProvider } from '@/state/toast';
 import { VehicleFilterProvider } from '@/state/vehicleFilter';
 import { colors, fonts } from '@/theme';
 
@@ -41,29 +42,31 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <VehicleFilterProvider>
-      <RouteDraftProvider>
-        <StatusBar style="dark" />
-        <Stack
-          screenOptions={{
-            headerTintColor: colors.ink,
-            headerStyle: { backgroundColor: colors.sheet },
-            headerTitleStyle: { fontFamily: fonts.krBold },
-            contentStyle: { backgroundColor: colors.subtle },
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          {/* 차량 상세는 지도 위에 자체 닫기 버튼이 있어서 기본 헤더를 숨깁니다. */}
-          <Stack.Screen name="vehicle/[vin]" options={{ title: '차량 상세', headerShown: false }} />
-          <Stack.Screen name="dispatch/[vin]" options={{ title: '목적지 선택' }} />
-          {/* 차량 필터: 차량 목록이 비쳐 보이도록 투명 모달로 띄웁니다. */}
-          <Stack.Screen name="filter" options={SHEET_OPTIONS} />
-          <Stack.Screen name="region" options={{ headerShown: false }} />
-          {/* 작업 경로 설정 · 지점 선택: 차량 상세 위에 바텀 시트처럼 띄웁니다. */}
-          <Stack.Screen name="route-setup/[vin]" options={SHEET_OPTIONS} />
-          <Stack.Screen name="stop-select" options={SHEET_OPTIONS} />
-        </Stack>
-      </RouteDraftProvider>
-    </VehicleFilterProvider>
+    <ToastProvider>
+      <VehicleFilterProvider>
+        <RouteDraftProvider>
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerTintColor: colors.ink,
+              headerStyle: { backgroundColor: colors.sheet },
+              headerTitleStyle: { fontFamily: fonts.krBold },
+              contentStyle: { backgroundColor: colors.subtle },
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            {/* 차량 상세는 지도 위에 자체 닫기 버튼이 있어서 기본 헤더를 숨깁니다. */}
+            <Stack.Screen name="vehicle/[vin]" options={{ title: '차량 상세', headerShown: false }} />
+            <Stack.Screen name="dispatch/[vin]" options={{ title: '목적지 선택' }} />
+            {/* 차량 필터: 차량 목록이 비쳐 보이도록 투명 모달로 띄웁니다. */}
+            <Stack.Screen name="filter" options={SHEET_OPTIONS} />
+            <Stack.Screen name="region" options={{ headerShown: false }} />
+            {/* 작업 경로 설정 · 지점 선택: 차량 상세 위에 바텀 시트처럼 띄웁니다. */}
+            <Stack.Screen name="route-setup/[vin]" options={SHEET_OPTIONS} />
+            <Stack.Screen name="stop-select" options={SHEET_OPTIONS} />
+          </Stack>
+        </RouteDraftProvider>
+      </VehicleFilterProvider>
+    </ToastProvider>
   );
 }

@@ -1,5 +1,5 @@
 import { forwardRef, type ReactNode } from 'react';
-import { Platform, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import MapView, { UrlTile, type MapViewProps, type Region } from 'react-native-maps';
 
 import { C_TRACK_REGION, MAP_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '@/constants/map';
@@ -9,6 +9,8 @@ type Props = Omit<MapViewProps, 'mapType' | 'style'> & {
   style?: StyleProp<ViewStyle>;
   initialRegion?: Region;
   children?: ReactNode;
+  /** 출처 표시 위치 조정. 지도 아래를 바텀 시트가 덮는 화면에서는 bottom을 올려 주세요 (OSM 이용 조건상 가려지면 안 됨) */
+  attributionStyle?: StyleProp<TextStyle>;
 };
 
 /**
@@ -19,7 +21,7 @@ type Props = Omit<MapViewProps, 'mapType' | 'style'> & {
  * 차량 마커·경로(Polyline)는 children으로 넣어 사용합니다.
  */
 export const OsmMap = forwardRef<MapView, Props>(function OsmMap(
-  { style, initialRegion = C_TRACK_REGION, children, ...rest },
+  { style, initialRegion = C_TRACK_REGION, children, attributionStyle, ...rest },
   ref,
 ) {
   return (
@@ -36,7 +38,7 @@ export const OsmMap = forwardRef<MapView, Props>(function OsmMap(
         {MAP_TILE_URL && <UrlTile urlTemplate={MAP_TILE_URL} maximumZ={MAP_TILE_MAX_ZOOM} flipY={false} />}
         {children}
       </MapView>
-      {MAP_TILE_URL && <Text style={styles.attribution}>{MAP_ATTRIBUTION}</Text>}
+      {MAP_TILE_URL && <Text style={[styles.attribution, attributionStyle]}>{MAP_ATTRIBUTION}</Text>}
     </View>
   );
 });
