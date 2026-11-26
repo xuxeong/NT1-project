@@ -13,6 +13,7 @@ from app.db.models import MissionRecord, VehicleEventRecord, VehicleRecord
 from app.db.repository import DatabaseLogger
 from app.main import app
 from app.simulator.vehicle_sim import VehicleSimulator
+from app.models.vehicle import OperationStatus
 
 
 @pytest.fixture
@@ -95,3 +96,105 @@ async def test_sqlalchemy_mission_and_event_persistence(isolated_db_logger, monk
         with TestSession() as db:
             assert db.query(MissionRecord).count() == 1
             assert db.query(VehicleEventRecord).count() >= 6
+
+
+@pytest.mark.parametrize('cause', ['report', 'offline', 'sensor', 'suspended'])
+def test_automatic_pause_updates_mission_and_preserves_route(isolated_db_logger, cause):
+    logger, sessions = isolated_db_logger
+    sim = VehicleSimulator()
+    v = sim.vehicles['X3S1181']
+    sim.start_dispatch_coordinate(v.id, 36.7297202, 127.4423425)
+    task_id = v.task.task_id
+    path = list(sim._waypoints[v.id])
+    if cause == 'report':
+        # Report safety-stop must work even if the user pause command is unavailable.
+        v.online = False
+        sim.report_fault(v.id, 1, '점검')
+    else:
+        if cause == 'offline':
+            v.online = False
+        elif cause == 'sensor':
+            v.sensors.camera_ok = False
+        else:
+            v.operation_status = OperationStatus.SUSPENDED
+        sim.tick_one_second()
+    with sessions() as db:
+        mission = db.query(MissionRecord).filter_by(task_id=task_id).one()
+        assert mission.mission_status == 2
+        assert db.query(VehicleEventRecord).filter_by(event_type='PAUSE').count() == 1
+    assert v.task_status == 'paused' and sim._waypoints[v.id] == path
+    # Another tick or a rejected user command must not duplicate the pause event.
+    sim.tick_one_second()
+    assert not sim.pause(v.id)
+    with sessions() as db:
+        assert db.query(VehicleEventRecord).filter_by(event_type='PAUSE').count() == 1
+
+
+def test_completed_mission_not_cancelled_by_repeated_stop_or_power_off(isolated_db_logger):
+    logger, sessions = isolated_db_logger
+    sim = VehicleSimulator()
+    v = sim.vehicles['X3S1181']
+    sim.start_dispatch_coordinate(v.id, v.lat, v.lng)
+    sim.tick_one_second()
+    assert v.task_status == 'completed'
+    sim.stop(v.id)
+    sim.control(v.id, power=False)
+    sim.stop(v.id)
+    with sessions() as db:
+        assert db.query(MissionRecord).one().mission_status == 3
+        assert db.query(VehicleEventRecord).filter_by(event_type='CANCEL').count() == 0
+    assert v.task_status == 'completed'
+
+
+def test_cancel_records_only_current_task_once(isolated_db_logger):
+    logger, sessions = isolated_db_logger
+    sim = VehicleSimulator()
+    v = sim.vehicles['X3S1181']
+    sim.stop(v.id)  # No mission must not create a cancellation.
+    sim.start_dispatch_coordinate(v.id, 36.7297202, 127.4423425)
+    sim.pause(v.id)
+    sim.control(v.id, power=False)
+    sim.stop(v.id)
+    with sessions() as db:
+        assert db.query(MissionRecord).one().mission_status == 4
+        assert db.query(VehicleEventRecord).filter_by(event_type='CANCEL').count() == 1
+
+
+def test_driving_tick_updates_latest_vehicle_snapshot(isolated_db_logger):
+    logger, sessions = isolated_db_logger
+    sim = VehicleSimulator()
+    v = sim.vehicles['X3S1181']
+    sim.start_dispatch_coordinate(v.id, 36.7297202, 127.4423425)
+    start = v.lat, v.lng
+    sim.tick_one_second()
+    assert (v.lat, v.lng) != start
+    with sessions() as db:
+        row = db.query(VehicleRecord).filter_by(id=v.id).one()
+        assert (row.lat, row.lng, row.battery, row.heading) == (v.lat, v.lng, v.battery, v.heading)
+
+
+def test_history_survives_database_reconnection(tmp_path, monkeypatch):
+    url = f'sqlite:///{tmp_path / "history.sqlite3"}'
+    first_engine = create_engine(url)
+    logger = DatabaseLogger(session_factory=sessionmaker(bind=first_engine))
+    monkeypatch.setattr(repo_module, 'db_logger', logger)
+    sim = VehicleSimulator()
+    v = sim.vehicles['X3S1181']
+    try:
+        sim.start_dispatch_coordinate(v.id, 36.7297202, 127.4423425)
+        task_id = v.task.task_id
+        sim.pause(v.id)
+        sim.stop(v.id)
+    finally:
+        first_engine.dispose()
+    reopened_engine = create_engine(url)
+    try:
+        reopened = DatabaseLogger(session_factory=sessionmaker(bind=reopened_engine))
+        records = reopened.get_mission_history(v.id)
+        assert len(records) == 1
+        assert records[0]['task_id'] == task_id and records[0]['mission_status'] == 4
+        assert {row['event_type'] for row in reopened.get_event_history(v.id)} == {
+            'DISPATCH_START', 'PAUSE', 'CANCEL',
+        }
+    finally:
+        reopened_engine.dispose()

@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.database import SessionLocal, init_db
 from app.db.models import MissionRecord, VehicleEventRecord, VehicleRecord, utc_now
-from app.models.vehicle import VehicleState
+from app.models.vehicle import TaskPhase, VehicleState
 
 
 class DatabaseLogger:
@@ -16,7 +16,7 @@ class DatabaseLogger:
 
     def ensure_initialized(self) -> None:
         if not self._initialized:
-            init_db()
+            init_db(target_engine=self.session_factory.kw.get("bind"))
             self._initialized = True
 
     def sync_vehicle(self, v: VehicleState) -> None:
@@ -111,14 +111,14 @@ class DatabaseLogger:
         detail: str,
     ) -> None:
         """배차 작업 상태(1: 주행, 2: 일시정지, 3: 완료, 4: 취소)를 갱신하고 이벤트 로그를 남깁니다."""
+        # 현재 작업이 없는 요청으로 과거의 마지막 작업을 갱신하지 않습니다.
+        if not task_id:
+            return
         self.ensure_initialized()
         try:
             with self.session_factory() as db:
                 query = db.query(MissionRecord).filter(MissionRecord.vehicle_id == v.id)
-                if task_id:
-                    record = query.filter(MissionRecord.task_id == task_id).first()
-                else:
-                    record = query.order_by(MissionRecord.id.desc()).first()
+                record = query.filter(MissionRecord.task_id == task_id).first()
                 if record is not None:
                     record.mission_status = mission_status
                     record.updated_at = utc_now()
@@ -270,12 +270,16 @@ def attach_simulator_hooks(sim_cls) -> None:
 
     def stop(self, vehicle_id: str) -> bool:
         v = self.vehicles.get(vehicle_id)
-        prev_task_id = v.task.task_id if (v and v.task) else None
+        prev_task_id = (
+            v.task.task_id if v and v.task and v.task.phase != TaskPhase.ARRIVED else None
+        )
         ok = orig_stop(self, vehicle_id)
-        if ok and v:
+        if ok and v and prev_task_id:
             db_logger.update_mission_status(
                 v, prev_task_id, 4, "CANCEL", f"작업 취소 및 정차 ({v.lat:.6f}, {v.lng:.6f})"
             )
+        elif ok and v:
+            db_logger.sync_vehicle(v)
         return ok
 
     def control(self, vehicle_id: str, power=None, *args, **kwargs) -> bool:
@@ -287,10 +291,16 @@ def attach_simulator_hooks(sim_cls) -> None:
         return ok
 
     def report_fault(self, vehicle_id: str, fault_status: int, reason=None) -> bool:
+        v = self.vehicles.get(vehicle_id)
+        was_driving = bool(v and v.task and v.task.phase == TaskPhase.DRIVING)
         ok = orig_report_fault(self, vehicle_id, fault_status, reason)
         if ok:
             v = self.vehicles.get(vehicle_id)
             if v:
+                if was_driving and v.task and v.task.phase == TaskPhase.PAUSED:
+                    db_logger.update_mission_status(
+                        v, v.task.task_id, 2, "PAUSE", "고장 신고로 주행 일시정지"
+                    )
                 event_type = "FAULT_REPORT" if v.fault_status == 1 else "FAULT_CLEAR"
                 detail = (
                     f"고장 신고 접수: {reason or '사유 미기재'}"
@@ -313,6 +323,13 @@ def attach_simulator_hooks(sim_cls) -> None:
                 db_logger.update_mission_status(
                     v, prev_task_id, 3, "ARRIVED", f"목적지 도착 완료 ({v.lat:.6f}, {v.lng:.6f})"
                 )
+            elif v and v.task and v.task.task_id == prev_task_id and v.task.phase == TaskPhase.PAUSED:
+                db_logger.update_mission_status(
+                    v, prev_task_id, 2, "PAUSE", "차량 운행 불가 상태로 자동 일시정지"
+                )
+        # 제어 이벤트가 없는 주행 중에도 최신 좌표·배터리 스냅샷을 갱신합니다.
+        for v in self.vehicles.values():
+            db_logger.sync_vehicle(v)
 
     sim_cls.start_dispatch_point = start_dispatch_point
     sim_cls.start_dispatch_coordinate = start_dispatch_coordinate
