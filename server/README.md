@@ -111,6 +111,10 @@ docker-compose up -d --build
 | `GET` | `/api/vehicles/{id}` | 특정 차량 상세 상태 조회 |
 | `POST` | `/api/vehicles/{id}/control` | 차량 하드웨어 상태 제어 (전원, 도어, 조명) |
 | `GET` | `/api/roads` | C-Track OSM 세부 도로망(`c_track_roads.json`) 렌더링용 좌표 조회 |
+| `GET` | `/api/vehicles/history/missions` | DB에 영구 적재된 전체 또는 차량별 배차 작업(Mission) 이력 조회 |
+| `GET` | `/api/vehicles/history/events` | DB에 영구 적재된 차량 상태·제어·고장 이벤트 감사 로그 조회 |
+| `POST` | `/api/vehicles/reset` | 시뮬레이터 및 DB 차량·작업 상태를 초기 출발 상태로 리셋 |
+| `GET` | `/tiles/{z}/{x}/{y}.png` | 모바일 앱(`react-native-maps`)용 OpenStreetMap 지도 타일 캐시·중계(Proxy) |
 | `GET` | `/api/health` | 서버 상태 및 운행 중인 차량/작업 수 확인 |
 | `WS` | `/ws/telemetry` | 초당 1회(1Hz) 실시간 텔레메트리 스트림 (WebSocket) |
 

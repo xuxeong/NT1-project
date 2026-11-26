@@ -2,8 +2,9 @@ import asyncio
 import json
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+import httpx
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import PROJECT_NAME, PROJECT_VERSION, API_V1_PREFIX
@@ -12,12 +13,14 @@ from app.api.neolix import router as neolix_router
 from app.simulator.vehicle_sim import simulator
 from app.db.repository import db_logger
 
+TILE_CACHE_DIR = Path(__file__).resolve().parent.parent / ".tile_cache"
+OSM_TILE_HEADERS = {"User-Agent": "NT1-Neolix-Mock-Server/0.1 (Gachon-University-C-Track-Simulator)"}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 서버 기동 시: DB 테이블 초기화, 초기 차량 동기화 및 1Hz 시뮬레이션 태스크 시작
-    for v in simulator.get_all_vehicles():
-        db_logger.sync_vehicle(v)
+    # 서버 기동 시: DB에서 이전 차량 위치·배터리·진행 중 배차 작업을 이어받거나(Restore) 초기 차량을 적재하고 1Hz 시뮬레이션 시작
+    db_logger.restore_or_seed_simulator(simulator)
     simulator.start_background_loop()
     yield
     # 서버 종료 시: 시뮬레이션 태스크 정리
@@ -81,6 +84,36 @@ async def health_check():
         "vehicles_count": len(vehicles),
         "active_tasks": sum(1 for v in vehicles if v.task is not None),
     }
+
+
+@app.get("/tiles/{z}/{x}/{y}.png", tags=["Map Tiles (OSM 지도 타일 중계)"])
+@app.get("/api/tiles/{z}/{x}/{y}.png", tags=["Map Tiles (OSM 지도 타일 중계)"])
+async def proxy_osm_tile(z: int, x: int, y: int):
+    """모바일 앱(react-native-maps)을 위한 OpenStreetMap 타일 캐시 및 중계 엔드포인트."""
+    if not (0 <= z <= 19) or x < 0 or y < 0:
+        raise HTTPException(status_code=422, detail="유효하지 않은 타일 좌표입니다.")
+    cache_file = TILE_CACHE_DIR / str(z) / str(x) / f"{y}.png"
+    if cache_file.exists():
+        return Response(
+            content=cache_file.read_bytes(),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    url = f"https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    try:
+        async with httpx.AsyncClient(headers=OSM_TILE_HEADERS, timeout=10.0) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail="OSM 타일 조회 실패")
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_bytes(resp.content)
+        return Response(
+            content=resp.content,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"OSM 타일 서버 연결 오류: {exc}") from exc
 
 
 # 실시간 텔레메트리 WebSocket 엔드포인트
