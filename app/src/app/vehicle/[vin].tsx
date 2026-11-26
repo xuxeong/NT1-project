@@ -124,6 +124,7 @@ export default function VehicleDetailScreen() {
           <OsmMap
             key="loading"
             style={StyleSheet.absoluteFill}
+            attributionStyle={styles.attribution}
             initialRegion={{
               latitude: C_TRACK_CENTER.lat,
               longitude: C_TRACK_CENTER.lng,
@@ -211,6 +212,7 @@ export default function VehicleDetailScreen() {
         <OsmMap
           key={vehicle.vin}
           style={StyleSheet.absoluteFill}
+          attributionStyle={styles.attribution}
           initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.004, longitudeDelta: 0.004 }}
           // 위쪽 버튼 줄과 아래 시트에 가려지지 않는 영역의 가운데에 차량이 오도록 여백을 줍니다.
           mapPadding={{ top: insets.top + 48, right: 0, bottom: 24, left: 0 }}
@@ -434,6 +436,8 @@ const styles = StyleSheet.create({
   mapArea: { flex: 1, minHeight: 200, marginBottom: -24, backgroundColor: '#E8ECF1' },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16 },
   topActions: { flexDirection: 'row', gap: 8 },
+  // 바텀 시트가 지도 아래 24를 덮으므로 OSM 출처 표시를 그 위로 올립니다
+  attribution: { bottom: 28 },
   faultButton: { paddingLeft: 12, paddingRight: 14 },
   faultLabel: { ...typography.label12, color: colors.ink },
 

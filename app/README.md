@@ -22,7 +22,7 @@
 | **Language** | TypeScript | 화면·데이터 타입 검사 |
 | **Framework** | Expo SDK 58, React Native 0.88 | Android 앱 개발 및 Expo Go 실행 |
 | **Navigation** | Expo Router | 파일 이름 = 화면 주소 방식의 화면 이동 |
-| **Map** | react-native-maps | 차량 위치·경로 지도 표시 (배경은 OSM 타일 연결 예정) |
+| **Map** | react-native-maps | 차량 위치·경로 지도 표시 (배경은 Mock 서버가 중계하는 OSM 타일) |
 | **Location** | expo-location | 사용자와 차량 사이 거리 계산 |
 | **Font** | @expo-google-fonts (Noto Sans KR, Inter) | Figma 글자 스타일과 같은 글꼴 |
 | **Icon** | react-native-svg, react-native-svg-transformer | Figma에서 내려받은 SVG 아이콘을 컴포넌트로 사용 |
@@ -67,6 +67,11 @@ npx expo start
 # 에뮬레이터를 먼저 켠 뒤
 npx expo start --android
 ```
+
+### 지도 배경(OSM) 보기
+* 지도 배경은 Mock 서버의 타일 중계 API(`GET /tiles/{z}/{x}/{y}.png`)로 받아 옵니다. **같은 PC에서 Mock 서버(`../server`, 8000번 포트)를 켜 두세요.** 서버가 꺼져 있으면 기본 지도만 보입니다.
+* 서버 주소는 Expo Go로 접속한 PC 주소의 8000번 포트를 자동으로 씁니다 (`src/constants/server.ts`). 다른 주소를 쓰려면 `app/.env.local`에 `EXPO_PUBLIC_MOCK_BASE_URL=http://주소:8000`을 적습니다.
+* 에뮬레이터를 `127.0.0.1`(adb reverse)로 연결했다면 `adb reverse tcp:8000 tcp:8000`도 실행해 주세요.
 
 ---
 
