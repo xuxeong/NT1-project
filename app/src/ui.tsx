@@ -2,7 +2,7 @@
  * 여러 화면에서 쓰는 공통 UI 부품 (Figma 컴포넌트 페이지 기준).
  */
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, radius, typography } from '@/theme';
 
@@ -11,49 +11,65 @@ type ButtonProps = {
   icon?: ReactNode;
   onPress?: () => void;
   disabled?: boolean;
+  /** 서버 응답을 기다리는 중. 글자 대신 로딩 원을 보여 주고 누를 수 없게 합니다 (Figma: Button / Loading) */
+  loading?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 /** 파란 주요 버튼 (Figma: Primary Button 2). 아이콘은 흰색 SVG를 넣습니다. */
-export function PrimaryButton({ label, icon, onPress, disabled, style }: ButtonProps) {
+export function PrimaryButton({ label, icon, onPress, disabled, loading, style }: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
         styles.primary,
         disabled && styles.disabled,
-        pressed && !disabled && styles.pressed,
+        pressed && !disabled && !loading && styles.pressed,
         style,
       ]}
     >
-      {icon}
-      <Text style={[styles.buttonLabel, { color: colors.onInk }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.onInk} />
+      ) : (
+        <>
+          {icon}
+          <Text style={[styles.buttonLabel, { color: colors.onInk }]}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }
 
 /** 회색 보조 버튼 (Figma: 일시정지 버튼) */
-export function SecondaryButton({ label, icon, onPress, disabled, style }: ButtonProps) {
+export function SecondaryButton({ label, icon, onPress, disabled, loading, style }: ButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
         styles.secondary,
         disabled && styles.disabled,
-        pressed && !disabled && styles.pressed,
+        pressed && !disabled && !loading && styles.pressed,
         style,
       ]}
     >
-      {icon}
-      <Text style={[styles.buttonLabel, { color: colors.ink }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.ink} />
+      ) : (
+        <>
+          {icon}
+          <Text style={[styles.buttonLabel, { color: colors.ink }]}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -144,21 +160,28 @@ export function ControlItem({
   label,
   tone = 'neutral',
   onPress,
+  loading = false,
 }: {
   icon: ReactNode;
   label: string;
   tone?: ControlTone;
   onPress?: () => void;
+  /** 서버 응답을 기다리는 중. 아이콘 대신 로딩 원 */
+  loading?: boolean;
 }) {
   const bg = tone === 'danger' ? colors.dangerSubtle : tone === 'accent' ? colors.accentSubtle : colors.subtle;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ busy: loading }}
       onPress={onPress}
-      style={({ pressed }) => [styles.control, pressed && styles.pressed]}
+      disabled={loading}
+      style={({ pressed }) => [styles.control, pressed && !loading && styles.pressed]}
     >
-      <View style={[styles.controlBox, { backgroundColor: bg }]}>{icon}</View>
+      <View style={[styles.controlBox, { backgroundColor: bg }]}>
+        {loading ? <ActivityIndicator size="small" color={colors.ink} /> : icon}
+      </View>
       <Text style={styles.controlLabel}>{label}</Text>
     </Pressable>
   );

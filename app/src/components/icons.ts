@@ -17,7 +17,7 @@ export { default as ClearIcon } from '../../assets/icons/clear.svg';
 
 // 차량 상세 화면
 export { default as SensorIcon } from '../../assets/icons/sensor.svg';
-export { default as WarningIcon } from '../../assets/icons/warning.svg';
+export { default as WarningIcon } from '../../assets/icons/warning.svg'; // [색을 바꿔 쓰는 아이콘]
 export { default as Pin20Icon } from '../../assets/icons/pin-20.svg';
 export { default as NavigationIcon } from '../../assets/icons/navigation.svg';
 export { default as ListIcon } from '../../assets/icons/list.svg';

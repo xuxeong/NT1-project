@@ -16,7 +16,7 @@ export function CancelTaskDialog({ visible, onClose, onConfirm }: Props) {
       <View style={styles.backdrop}>
         <View style={styles.card} accessibilityViewIsModal>
           <View style={styles.iconWrap}>
-            <WarningIcon width={24} height={24} />
+            <WarningIcon width={24} height={24} color={colors.danger} />
           </View>
           <View style={styles.texts}>
             <Text style={styles.title}>작업을 취소할까요?</Text>
