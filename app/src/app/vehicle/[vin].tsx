@@ -31,6 +31,7 @@ import { OsmMap } from '@/components/OsmMap';
 import { SkeletonGroup, VehicleDetailSkeleton } from '@/components/Skeleton';
 import { StatusChip, type ChipTone } from '@/components/StatusChip';
 import { DriveTypeSheet } from '@/components/DriveTypeSheet';
+import { SensorStatusSheet } from '@/components/SensorStatusSheet';
 import { TaskInfoSheet } from '@/components/TaskInfoSheet';
 import { C_TRACK_CENTER } from '@/constants/map';
 import { useAsync } from '@/hooks/useAsync';
@@ -85,6 +86,7 @@ export default function VehicleDetailScreen() {
   const [taskSheetOpen, setTaskSheetOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [driveTypeOpen, setDriveTypeOpen] = useState(false);
+  const [sensorSheetOpen, setSensorSheetOpen] = useState(false);
 
   useEffect(() => {
     if (data) setVehicle(data);
@@ -191,15 +193,6 @@ export default function VehicleDetailScreen() {
     ]);
   };
 
-  const showSensors = () => {
-    const s = vehicle.sensors;
-    const ok = (v: boolean) => (v ? '정상' : '이상');
-    Alert.alert(
-      '센서 상태',
-      `LiDAR ${ok(s.lidar_ok)} · 레이더 ${ok(s.radar_ok)}\n카메라 ${ok(s.camera_ok)} · IMU ${ok(s.imu_ok)}\nGNSS ${s.gnss_fix} · 온도 ${s.temperature_c}℃`,
-    );
-  };
-
   return (
     <View style={styles.screen}>
       {/* ── 지도 ── */}
@@ -215,7 +208,7 @@ export default function VehicleDetailScreen() {
             <VehicleMarkerIcon width={48} height={48} />
           </Marker>
         </OsmMap>
-        {topBar(showSensors)}
+        {topBar(() => setSensorSheetOpen(true))}
       </View>
 
       {/* ── 바텀 시트 ── */}
@@ -389,6 +382,7 @@ export default function VehicleDetailScreen() {
           setCancelDialogOpen(true);
         }}
       />
+      <SensorStatusSheet visible={sensorSheetOpen} vehicle={vehicle} onClose={() => setSensorSheetOpen(false)} />
       <CancelTaskDialog
         visible={cancelDialogOpen}
         onClose={() => setCancelDialogOpen(false)}
