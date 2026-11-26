@@ -2,6 +2,21 @@
 * **담당 파트**: Mock 서버 REST API, 실시간 통신 및 데이터베이스 인프라
 * **핵심 모듈**: `app/api/`, `app/main.py`, `Dockerfile`, `docker-compose.yml`
 ---
+## [2026-11-26] ORM 및 차량 API 구체화 브랜치 main 병합 완료
+
+### 주요 작업 내용
+
+* PostgreSQL·SQLAlchemy ORM 연동 브랜치 `feature/postgres-sqlalchemy-orm`과 차량 API 구체화 브랜치 `feature/vehicle-api-refinement`의 main 병합 완료.
+* 통합 브랜치 `feature/server-orm-integration`에서 두 브랜치를 병합하고 DB 기록과 차량 작업 상태의 연동을 보완한 뒤 main에 반영.
+* 고장·자동 일시정지 상태 기록, 완료 결과 보존, 작업 없는 취소 이벤트 방지 및 주행 중 차량 최신 상태 DB 갱신 보완.
+* 11월 25일 기록의 API 구체화 브랜치 병합 대기 상태는 이번 병합으로 완료.
+
+### 검증 결과 및 다음 계획
+
+* 병합 당시 전체 pytest **43개 통과** 및 격리 SQLite 기반 HTTP·WebSocket·DB 이력 조회 검증 완료.
+* 실제 PostgreSQL은 Docker daemon 미실행으로 미검증이며, 실제 앱 연동도 후속 검증 예정.
+* 이번 작업 일지 갱신에서는 서버·테스트를 추가 실행하지 않음.
+
 ## [2026-11-25] 기존 서버 기능의 요청·응답 및 동작 처리 보완
 
 ### 주요 작업 내용
