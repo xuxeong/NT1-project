@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException
 from app.models.dispatch import DispatchRequest, CommandResponse, CoordinatePreviewRequest
-from app.models.vehicle import TaskPhase
 from app.simulator.vehicle_sim import simulator
 
 router = APIRouter(prefix="/dispatch", tags=["Dispatch (배차 및 주행 제어)"])
@@ -17,12 +16,12 @@ async def dispatch_vehicle(req: DispatchRequest):
         raise HTTPException(status_code=404, detail=f"차량 {req.vehicle_id}을 찾을 수 없습니다.")
 
     if not v.power:
-        raise HTTPException(status_code=400, detail="차량 전원이 꺼져 있어 배차할 수 없습니다.")
+        raise HTTPException(status_code=409, detail="차량 전원이 꺼져 있어 배차할 수 없습니다.")
     if not v.online:
         raise HTTPException(status_code=409, detail="오프라인 차량에는 배차할 수 없습니다.")
-    if v.fault_status == 1:
-        raise HTTPException(status_code=409, detail="고장 신고가 접수된 차량에는 배차할 수 없습니다.")
-    if v.task and v.task.phase != TaskPhase.ARRIVED:
+    if v.has_fault:
+        raise HTTPException(status_code=409, detail="고장 상태의 차량에는 배차할 수 없습니다.")
+    if not v.dispatch_available:
         raise HTTPException(status_code=409, detail="현재 작업을 정지한 후 새 배차를 시작해 주세요.")
 
     if req.kind == "point":
@@ -39,7 +38,10 @@ async def dispatch_vehicle(req: DispatchRequest):
             )
         if not req.target_stop_id:
             raise HTTPException(status_code=422, detail="지도에서 목적지 좌표를 지정해 주세요.")
-        ok = simulator.start_dispatch_point(req.vehicle_id, req.target_stop_id)
+        try:
+            ok = simulator.start_dispatch_point(req.vehicle_id, req.target_stop_id)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         if not ok:
             raise HTTPException(status_code=400, detail="목표 지점을 찾을 수 없습니다.")
         return CommandResponse(ok=True, message=f"차량 {req.vehicle_id}의 {req.target_stop_id} 지점 배차가 시작되었습니다.", vehicle_id=req.vehicle_id)
@@ -60,17 +62,23 @@ async def preview_dispatch(req: CoordinatePreviewRequest):
 
 @router.post("/{vehicle_id}/pause", response_model=CommandResponse, summary="주행 일시정지")
 async def pause_vehicle(vehicle_id: str):
+    """주행 중 작업만 일시정지합니다. 이미 일시정지한 작업은 409입니다."""
+    if simulator.get_vehicle(vehicle_id) is None:
+        raise HTTPException(status_code=404, detail="차량을 찾을 수 없습니다.")
     ok = simulator.pause(vehicle_id)
     if not ok:
-        raise HTTPException(status_code=400, detail=f"차량 {vehicle_id} 일시정지 실패 (작업 중이 아님)")
+        raise HTTPException(status_code=409, detail="일시정지할 수 있는 작업이 없습니다.")
     return CommandResponse(ok=True, message="주행이 일시정지되었습니다.", vehicle_id=vehicle_id)
 
 
 @router.post("/{vehicle_id}/resume", response_model=CommandResponse, summary="주행 재개")
 async def resume_vehicle(vehicle_id: str):
+    """일시정지한 작업만 재개합니다. 이미 주행 중인 작업은 409입니다."""
+    if simulator.get_vehicle(vehicle_id) is None:
+        raise HTTPException(status_code=404, detail="차량을 찾을 수 없습니다.")
     ok = simulator.resume(vehicle_id)
     if not ok:
-        raise HTTPException(status_code=400, detail=f"차량 {vehicle_id} 주행 재개 실패")
+        raise HTTPException(status_code=409, detail="현재 차량 상태에서 주행을 재개할 수 없습니다.")
     return CommandResponse(ok=True, message="주행이 재개되었습니다.", vehicle_id=vehicle_id)
 
 

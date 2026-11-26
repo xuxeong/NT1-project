@@ -273,10 +273,6 @@
             <button class="btn-warning" id="pauseBtn" onclick="togglePause()">⏸ 일시정지</button>
             <button class="btn-danger" onclick="stopVehicle()">🛑 비상 정지</button>
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-            <button class="btn-secondary" onclick="toggleDoor()">🚪 도어 전환</button>
-            <button class="btn-secondary" onclick="toggleLight()">💡 전조등 토글</button>
-          </div>
         </div>
       </div>
 
@@ -314,8 +310,6 @@
     let mapMoving = false;
     let currentVehicle = null;
     let isPaused = false;
-    let doorState = false;
-    let lightState = false;
 
     function addLog(msg) {
       const box = document.getElementById('logBox');
@@ -559,8 +553,6 @@
       document.getElementById('vName').textContent = v.name + ' (' + v.id + ')';
       document.getElementById('vStatus').textContent = !v.online ? '오프라인' : !v.power ? '전원 꺼짐' : v.task?.paused ? '일시정지' : v.speed_kmh > 0 ? '주행 중' : '정차';
       document.getElementById('vStatus').style.color = v.online && v.power ? '#10b981' : '#94a3b8';
-      doorState = v.door_open;
-      lightState = !!v.lights?.low;
       updateSpecifications(v);
       updateSensorUI(v);
       const moved = !currentVehicle || currentVehicle.lat !== v.lat || currentVehicle.lng !== v.lng;
@@ -703,28 +695,6 @@
       const res = await fetch(`/api/dispatch/${selectedVehicleId}/stop`, { method: 'POST' });
       const data = await res.json();
       if (res.ok) addLog(`비상 정지: ${data.message}`);
-    }
-
-    async function toggleDoor() {
-      if (!currentVehicle || dispatchPending) return;
-      doorState = !doorState;
-      const res = await fetch(`/api/vehicles/${selectedVehicleId}/control`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ door_open: doorState })
-      });
-      addLog(`도어 상태 변경: ${doorState ? '열림 🔓' : '닫힘 🔒'}`);
-    }
-
-    async function toggleLight() {
-      if (!currentVehicle || dispatchPending) return;
-      lightState = !lightState;
-      const res = await fetch(`/api/vehicles/${selectedVehicleId}/control`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lights: { low: lightState, high: false, beacon: lightState, fog: false } })
-      });
-      addLog(`전조등/경광등 상태 변경: ${lightState ? 'ON 💡' : 'OFF'}`);
     }
 
     // 실행 시작

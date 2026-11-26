@@ -174,18 +174,15 @@ def numeric_id(internal_id: str) -> int:
 
 
 def has_vehicle_fault(state: VehicleState) -> bool:
-    s = state.sensors
-    sensor_fault = not (s.lidar_ok and s.radar_ok and s.camera_ok and s.imu_ok)
-    return bool(state.fault_status == 1 or sensor_fault)
+    return state.has_fault
 
 
 def status_fields(state: VehicleState):
-    remaining_km = round(state.specifications.full_charge_range_km * (state.battery / 100.0), 1)
     return {
         "vin": state.id, "vinId": state.name, "driveMode": int(state.power),
         "gear": state.gear, "speed": state.speed_kmh,
         "position": {"lon": state.lng, "lat": state.lat},
-        "realBattery": round(state.battery), "mile": remaining_km,
+        "realBattery": round(state.battery), "mile": state.remaining_range_km,
         "occurTimestamp": time.time_ns() // 1_000_000, "powerState": state.online,
     }
 
@@ -230,13 +227,16 @@ async def start(body: StartRequest):
         raise MockError(404, "MOCK_NOT_FOUND", "지점을 찾을 수 없습니다.")
     if departure == destination:
         raise MockError(422, "MOCK_INVALID", "출발 지점과 도착 지점이 같을 수 없습니다.")
-    if not state.power or not state.online or has_vehicle_fault(state) or state.speed_kmh or (
-        state.task and state.task.phase != TaskPhase.ARRIVED
-    ):
+    if not state.dispatch_available:
         raise MockError(409, "MOCK_STATE", "현재 차량 상태에서 배차할 수 없습니다.")
     if haversine_distance_m(state.lat, state.lng, departure.lat, departure.lng) > 1.0:
         raise MockError(409, "MOCK_STATE", "차량이 출발 지점에 있어야 합니다.")
-    simulator.start_dispatch_point(state.id, destination.id)
+    try:
+        started = simulator.start_dispatch_point(state.id, destination.id)
+    except ValueError as error:
+        raise MockError(422, "MOCK_INVALID", str(error)) from error
+    if not started:
+        raise MockError(409, "MOCK_STATE", "현재 차량 상태에서 배차할 수 없습니다.")
     task = state.task
     assert task is not None
     mission = Mission(next(mission_ids), departure, destination, task)
@@ -308,7 +308,8 @@ async def power(body: PowerRequest):
         raise MockError(422, "MOCK_INVALID", "handleType은 1 또는 2여야 합니다.")
     if body.handleType == 2 and state.speed_kmh != 0:
         raise MockError(409, "MOCK_STATE", "정차 후 전원을 끌 수 있습니다.")
-    simulator.control(state.id, power=body.handleType == 1, door_open=None, lights=None)
+    if not simulator.control(state.id, power=body.handleType == 1):
+        raise MockError(409, "MOCK_STATE", "현재 차량 상태에서 전원을 제어할 수 없습니다.")
     return success(None)
 
 
@@ -321,10 +322,7 @@ async def batch_status(body: BatchRequest):
         is_fault = has_vehicle_fault(state)
         results.append({
             **status_fields(state), "parkcode": "MOCK_AOI_01", "parkname": state.aoi,
-            "vehicleAvailable": int(
-                not state.power or not state.online or is_fault
-                or (state.task is not None and state.task.phase != TaskPhase.ARRIVED)
-            ),
+            "vehicleAvailable": int(not state.dispatch_available),
             "faultStatus": int(is_fault),
         })
     return success(results)
@@ -336,27 +334,27 @@ controls = APIRouter(prefix="/mock/vehicles", dependencies=[Depends(authenticate
 
 @controls.post("/{vin}/pause", response_model=MockResponse[None], responses=CONTROL_ERRORS,
                summary="주행 일시정지 · 지도 배차 연동",
-               description="정류장 및 지도 좌표 배차에 적용하는 Mock 확장입니다. 공통 인증 Query가 필요합니다.")
+               description="정류장 및 지도 좌표 배차에 적용합니다. 주행 중 작업만 허용하며 이미 일시정지한 작업은 409입니다. 공통 인증 Query가 필요합니다.")
 async def pause(vin: str):
     state = vehicle(vin)
     mission = resolve_mission(vin)
     if mission is None or state.task is not mission.task or not state.power or not state.online:
         raise MockError(409, "MOCK_STATE", "일시정지할 수 있는 작업이 없습니다.")
-    if not mission.task.paused:
-        simulator.pause(vin)
+    if not simulator.pause(vin):
+        raise MockError(409, "MOCK_STATE", "일시정지할 수 있는 작업이 없습니다.")
     return success(None)
 
 
 @controls.post("/{vin}/resume", response_model=MockResponse[None], responses=CONTROL_ERRORS,
                summary="주행 재개 · 지도 배차 연동",
-               description="정류장 및 지도 좌표 배차에 적용하는 Mock 확장입니다. 공통 인증 Query가 필요합니다.")
+               description="정류장 및 지도 좌표 배차에 적용합니다. 일시정지한 작업만 허용하며 이미 주행 중인 작업은 409입니다. 고장·전원 OFF·오프라인·운행 정지 상태는 재개할 수 없습니다. 공통 인증 Query가 필요합니다.")
 async def resume(vin: str):
     state = vehicle(vin)
     mission = resolve_mission(vin)
     if mission is None or state.task is not mission.task or not state.power or not state.online or has_vehicle_fault(state):
         raise MockError(409, "MOCK_STATE", "재개할 수 있는 작업이 없습니다.")
-    if mission.task.paused:
-        simulator.resume(vin)
+    if not simulator.resume(vin):
+        raise MockError(409, "MOCK_STATE", "재개할 수 있는 작업이 없습니다.")
     return success(None)
 
 
