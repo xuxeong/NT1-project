@@ -36,6 +36,13 @@ async def get_event_history(
     return {"ok": True, "events": db_logger.get_event_history(vehicle_id=vehicle_id, limit=limit)}
 
 
+@router.post("/reset", summary="시뮬레이터 및 DB 차량·작업 상태 초기화")
+async def reset_vehicles_state():
+    """모든 가상 차량의 위치·배터리·고장 상태와 DB 배차 이력을 초기 출발 상태로 리셋합니다."""
+    db_logger.reset_all_state(simulator)
+    return {"ok": True, "message": "가상 차량 및 DB 작업 이력이 초기 상태로 리셋되었습니다."}
+
+
 @router.get("/{vehicle_id}", response_model=VehicleState, summary="특정 가상 차량 상세 상태 조회")
 async def get_vehicle(vehicle_id: str):
     """차량 ID·AOI·속도(km/h)·기어·배터리(%)·방위각(도)·예상 거리(km)와
