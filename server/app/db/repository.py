@@ -4,7 +4,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.database import SessionLocal, init_db
 from app.db.models import MissionRecord, VehicleEventRecord, VehicleRecord, utc_now
-from app.models.vehicle import TaskPhase, VehicleState
+from app.models.vehicle import Gear, TaskPhase, TaskStatus, VehicleState, VehicleTask
+from app.simulator.road_network import path_length, road_path
 
 
 class DatabaseLogger:
@@ -202,6 +203,172 @@ class DatabaseLogger:
                 }
                 for r in rows
             ]
+
+    def restore_or_seed_simulator(self, sim) -> dict[str, str]:
+        """서버 시작 시 DB에 저장된 마지막 차량 상태와 배차 작업을 시뮬레이터로 이어받거나 초기값을 적재합니다."""
+        from app.simulator.vehicle_sim import calculate_bearing_deg
+
+        self.ensure_initialized()
+        actions: dict[str, str] = {}
+        try:
+            with self.session_factory() as db:
+                for v_id, v in sim.vehicles.items():
+                    record = db.query(VehicleRecord).filter(VehicleRecord.id == v_id).first()
+                    if record is None:
+                        self.sync_vehicle(v)
+                        actions[v_id] = "seeded"
+                        continue
+
+                    v.name = record.name
+                    v.aoi = record.aoi
+                    v.power = bool(record.power)
+                    v.online = bool(record.online)
+                    v.lat = float(record.lat)
+                    v.lng = float(record.lng)
+                    v.heading = float(record.heading)
+                    v.battery = float(record.battery)
+                    v.fault_status = int(record.fault_status)
+                    v.fault_reason = record.fault_reason
+                    v.location_name = f"{v.lat:.6f}, {v.lng:.6f}"
+
+                    last_mission = (
+                        db.query(MissionRecord)
+                        .filter(MissionRecord.vehicle_id == v_id)
+                        .order_by(MissionRecord.id.desc())
+                        .first()
+                    )
+
+                    if last_mission is None:
+                        v.task = None
+                        v.speed_kmh = 0.0
+                        v.gear = Gear.P
+                        v._last_task_status = TaskStatus.IDLE
+                        actions[v_id] = "restored_idle"
+                        continue
+
+                    full_points = road_path(
+                        (last_mission.start_lat, last_mission.start_lng),
+                        (last_mission.target_lat, last_mission.target_lng),
+                    )
+                    full_path_dicts = [{"lat": p[0], "lng": p[1]} for p in full_points]
+
+                    if last_mission.mission_status in (1, 2):
+                        remaining_points = road_path(
+                            (v.lat, v.lng),
+                            (last_mission.target_lat, last_mission.target_lng),
+                        )
+                        rem_dist = round(path_length(remaining_points), 1)
+                        total_dist = max(last_mission.total_distance_m, rem_dist, 0.1)
+                        progress = max(0.0, min(100.0, round((1.0 - rem_dist / total_dist) * 100.0, 1)))
+
+                        can_drive = (last_mission.mission_status == 1) and v.motion_allowed
+                        phase = TaskPhase.DRIVING if can_drive else TaskPhase.PAUSED
+                        paused = not can_drive
+
+                        restored_task = VehicleTask(
+                            task_id=last_mission.task_id,
+                            kind=last_mission.kind or "point",
+                            target_stop_name=last_mission.target_name,
+                            target_lat=last_mission.target_lat,
+                            target_lng=last_mission.target_lng,
+                            phase=phase,
+                            remaining_distance_m=rem_dist,
+                            progress_percent=progress,
+                            paused=paused,
+                        )
+                        v.task = restored_task
+                        sim._waypoints[v_id] = [list(p) for p in remaining_points[1:]]
+                        sim._target_queues[v_id] = []
+                        sim.coordinate_missions[v_id] = {
+                            "task": restored_task,
+                            "path": full_path_dicts,
+                        }
+                        if can_drive:
+                            v.speed_kmh = 15.0
+                            v.gear = Gear.D
+                            if sim._waypoints[v_id]:
+                                nxt = sim._waypoints[v_id][0]
+                                v.heading = calculate_bearing_deg(v.lat, v.lng, nxt[0], nxt[1])
+                            actions[v_id] = "resumed_driving"
+                        else:
+                            v.speed_kmh = 0.0
+                            v.gear = Gear.P
+                            if last_mission.mission_status == 1 and not can_drive:
+                                last_mission.mission_status = 2
+                                last_mission.updated_at = utc_now()
+                                db.commit()
+                            actions[v_id] = "restored_paused"
+                    elif last_mission.mission_status == 3:
+                        done_task = VehicleTask(
+                            task_id=last_mission.task_id,
+                            kind=last_mission.kind or "point",
+                            target_stop_name=last_mission.target_name,
+                            target_lat=last_mission.target_lat,
+                            target_lng=last_mission.target_lng,
+                            phase=TaskPhase.ARRIVED,
+                            remaining_distance_m=0.0,
+                            progress_percent=100.0,
+                            paused=False,
+                        )
+                        v.task = None
+                        v.speed_kmh = 0.0
+                        v.gear = Gear.P
+                        v._last_task_status = TaskStatus.COMPLETED
+                        sim.coordinate_missions[v_id] = {
+                            "task": done_task,
+                            "path": full_path_dicts,
+                        }
+                        actions[v_id] = "restored_completed"
+                    else:
+                        cancelled_task = VehicleTask(
+                            task_id=last_mission.task_id,
+                            kind=last_mission.kind or "point",
+                            target_stop_name=last_mission.target_name,
+                            target_lat=last_mission.target_lat,
+                            target_lng=last_mission.target_lng,
+                            phase=TaskPhase.PAUSED,
+                            remaining_distance_m=0.0,
+                            progress_percent=0.0,
+                            paused=True,
+                        )
+                        v.task = None
+                        v.speed_kmh = 0.0
+                        v.gear = Gear.P
+                        v._last_task_status = TaskStatus.CANCELLED
+                        sim.coordinate_missions[v_id] = {
+                            "task": cancelled_task,
+                            "path": full_path_dicts,
+                        }
+                        actions[v_id] = "restored_cancelled"
+        except Exception as exc:
+            print(f"[DB Warning] restore_or_seed_simulator 실패: {exc}")
+        return actions
+
+    def reset_all_state(self, sim) -> None:
+        """시뮬레이터 메모리 상태와 DB 테이블을 초기 출발 상태로 초기화합니다."""
+        from copy import deepcopy
+        from app.simulator.c_track_data import INITIAL_VEHICLES
+        from app.api import neolix as neolix_api
+
+        self.ensure_initialized()
+        sim.vehicles = {v.id: deepcopy(v) for v in INITIAL_VEHICLES}
+        sim._target_queues.clear()
+        sim._waypoints.clear()
+        sim._loop_routes.clear()
+        sim._loop_started.clear()
+        sim.coordinate_missions.clear()
+        neolix_api.missions.clear()
+
+        try:
+            with self.session_factory() as db:
+                db.query(VehicleEventRecord).delete()
+                db.query(MissionRecord).delete()
+                db.query(VehicleRecord).delete()
+                db.commit()
+            for v in sim.get_all_vehicles():
+                self.sync_vehicle(v)
+        except Exception as exc:
+            print(f"[DB Warning] reset_all_state 실패: {exc}")
 
 
 db_logger = DatabaseLogger()
