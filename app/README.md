@@ -69,9 +69,8 @@ npx expo start --android
 ```
 
 ### 지도 배경(OSM) 보기
-* 지도 배경은 Mock 서버의 타일 중계 API(`GET /tiles/{z}/{x}/{y}.png`)로 받아 옵니다. **같은 PC에서 Mock 서버(`../server`, 8000번 포트)를 켜 두세요.** 서버가 꺼져 있으면 기본 지도만 보입니다.
-* 서버 주소는 Expo Go로 접속한 PC 주소의 8000번 포트를 자동으로 씁니다 (`src/constants/server.ts`). 다른 주소를 쓰려면 `app/.env.local`에 `EXPO_PUBLIC_MOCK_BASE_URL=http://주소:8000`을 적습니다.
-* 에뮬레이터를 `127.0.0.1`(adb reverse)로 연결했다면 `adb reverse tcp:8000 tcp:8000`도 실행해 주세요.
+* 지도 배경은 Mock 서버의 타일 중계 API(`GET /tiles/{z}/{x}/{y}.png`)로 받아 옵니다. **같은 PC에서 Mock 서버(`../server`, 8000번 포트)를 켜 두세요.** 
+서버 실행 방법은 [server/README.md](../server/README.md) 참고. 서버가 꺼져 있으면 기본 지도만 보입니다.
 
 ---
 
@@ -91,15 +90,17 @@ app/
     │   ├── filter.tsx · region.tsx        # 차량 필터 · 운영 구역 선택
     │   ├── route-setup/[vin].tsx · stop-select.tsx  # 작업 경로 설정 · 지점 선택
     │   └── dispatch/[vin].tsx     # 목적지 선택 (지도 가운데 핀, 임시)
-    ├── components/         # 여러 화면에서 쓰는 부품 (VehicleCard, StatusChip, StopRow, 시트·확인 창, icons)
-    ├── hooks/              # 사용자 위치 등 화면에서 쓰는 훅
-    ├── state/              # 여러 화면이 함께 쓰는 상태 (차량 필터, 작업 경로)
-    ├── utils/              # 거리 계산, 차량 상태 문구, 와/과 조사
-    ├── ui.tsx              # 공통 UI 부품 (버튼, 수치 칸, 제어 칸 등)
+    ├── components/         # 여러 화면에서 쓰는 부품 (차량 카드, 바텀 시트, 확인 창, 로딩·오류 안내, 아이콘)
+    ├── hooks/              # 화면에서 쓰는 훅 (사용자 위치, useAsync: 데이터 불러오기 + 로딩·오류·다시 시도)
+    ├── state/              # 여러 화면이 함께 쓰는 상태 (차량 필터, 작업 경로, 토스트)
+    ├── utils/              # 거리 계산, 차량 상태 문구, 센서 상태 판정, 와/과 조사
+    ├── ui.tsx              # 공통 UI 부품 (버튼·버튼 로딩, 수치 칸, 제어 칸 등)
     ├── theme.ts            # 디자인 토큰 (Figma v2 변수 기준 색상·글꼴·글자 스타일)
     ├── types/              # 데이터 타입 (API 명세 필드명 기준), SVG import 타입
-    ├── constants/          # C-Track 좌표·지도 타일 주소, 운영 구역(시·도/시·군·구)
-    ├── mocks/              # 서버 연동 전 임시 데이터 (차량, 지점, 버튼 동작)
+    ├── constants/          # 고정 값 (Mock 서버 주소, C-Track 좌표·지도 타일, 운영 구역, 고장 유형)
+    ├── mocks/              # 서버 연동 전 임시 데이터·동작
+    │                       #   vehicles·stations: 임시 차량·지점, vehicleActions: 버튼 동작 규칙
+    │                       #   mockServer: 서버 요청 흉내 (응답 지연, 조회·요청 실패 상황)
     └── api/                # 서버 통신 계층 (예정)
 ```
 
@@ -107,6 +108,20 @@ app/
 * 화면은 `src/types/vehicle.ts`의 `Vehicle` 타입만 사용합니다.
 * 통신 계층(`src/api/`)은 서버 응답을 `Vehicle` 타입으로 바꿔서 화면에 넘겨 줍니다.
 * 서버 연동 전까지 화면은 `src/mocks/`의 임시 데이터로 개발합니다.
+* 화면은 데이터를 `src/mocks/mockServer.ts`의 함수로만 요청합니다. 연동할 때는 이 파일의 함수를 **같은 입력·출력 모양**의 실제 API 호출로 바꾸면 화면(로딩·오류·토스트 처리 포함)은 그대로 동작합니다.
+
+### 로딩·오류 화면 확인 방법
+서버 연동 전에는 `src/mocks/mockServer.ts`의 `MOCK_SCENARIO` 값을 바꿔서 확인합니다.
+응답 지연 시간은 차량 목록·상세 조회 0.8초, 버튼 요청 0.6초로 설정되어 있습니다.
+
+| 값 | 상황 | 화면 |
+|---|---|---|
+| `'success'` (기본) | 정상 | 0.8초 동안 회색 뼈대 후 화면 표시 |
+| `'load-error'` | 차량 목록·상세 조회 실패 | "서버에 연결할 수 없어요" + 다시 시도 |
+| `'action-error'` | 버튼 요청만 실패 | 버튼 로딩 후 "요청을 보내지 못했어요" 토스트 |
+
+* 값을 바꾼 뒤에는 **앱을 새로고침**해야 반영됩니다 (에뮬레이터에서 `Ctrl + M` → Reload).
+* 확인이 끝나면 **`'success'`로 되돌린 뒤 커밋**해 주세요.
 
 ### 구현 범위 메모 (NT1 11/16 피드백)
 차량 상세 화면 항목 중 아래는 **구현하지 않습니다** (화면에는 두고, 누르면 "추후 지원 예정" 안내):  
