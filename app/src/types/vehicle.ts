@@ -58,6 +58,11 @@ export interface Vehicle {
   vehicleAvailable: 0 | 1;
   /** 0: 정상, 1: 고장 (batchGetVehicleList) */
   faultStatus: 0 | 1;
+  /**
+   * 사용자가 접수한 고장 신고 (POST /mock/vehicles/{vin}/fault). 신고가 없으면 null.
+   * faultStatus는 신고와 센서 이상을 합친 값이라, 신고 내용·해제 버튼은 이 값으로 판단합니다.
+   */
+  faultReport: FaultReport | null;
   missionStatus: MissionStatus;
   /** 진행 중이거나 마지막 작업 정보. 작업이 없으면 null */
   mission: Mission | null;
@@ -93,4 +98,15 @@ export interface Mission {
   progressPercent: number;
   /** 작업 시작 시각 (ms 타임스탬프) */
   startedAt: number;
+}
+
+/**
+ * 고장 신고 정보.
+ * reason은 서버 응답의 fault_reason, reportedAt은 이벤트 이력(FAULT_REPORT)의 시각에서 가져옵니다.
+ */
+export interface FaultReport {
+  /** 신고 사유. 예) '센서 이상 · 라이다 인식이 불안정해요' */
+  reason: string | null;
+  /** 신고 시각 (ms 타임스탬프) */
+  reportedAt: number;
 }

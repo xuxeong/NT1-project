@@ -30,6 +30,7 @@ export const MOCK_VEHICLES: Vehicle[] = [
     powerState: true,
     vehicleAvailable: 0,
     faultStatus: 0,
+    faultReport: null,
     missionStatus: null,
     mission: null,
     operationStatus: 'active',
@@ -51,6 +52,7 @@ export const MOCK_VEHICLES: Vehicle[] = [
     powerState: true,
     vehicleAvailable: 1,
     faultStatus: 0,
+    faultReport: null,
     missionStatus: 1,
     mission: {
       missionSubId: 1,

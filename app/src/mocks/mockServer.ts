@@ -5,7 +5,7 @@
  *
  * TODO(한정혁): 통신 계층(src/api/)이 생기면 이 파일의 함수들을 실제 API 호출로 바꿔 주세요.
  */
-import { applyMockAction, type VehicleAction } from '@/mocks/vehicleActions';
+import { applyMockAction, applyMockFaultReport, type VehicleAction } from '@/mocks/vehicleActions';
 import { findMockVehicle, MOCK_VEHICLES } from '@/mocks/vehicles';
 import type { Vehicle } from '@/types/vehicle';
 
@@ -43,7 +43,12 @@ export function fetchMockVehicle(vin: string | undefined): Promise<Vehicle | und
   return respond(() => (vin ? findMockVehicle(vin) : undefined), LOAD_DELAY_MS, MOCK_SCENARIO === 'load-error');
 }
 
-/** 제어 요청 (일시정지·재개·취소·전원). 성공하면 바뀐 차량 상태를 돌려줍니다. */
+/** 제어 요청 (일시정지·재개·취소·전원·고장 해제). 성공하면 바뀐 차량 상태를 돌려줍니다. */
 export function sendMockAction(vehicle: Vehicle, action: VehicleAction): Promise<Vehicle> {
   return respond(() => applyMockAction(vehicle, action), ACTION_DELAY_MS, MOCK_SCENARIO === 'action-error');
+}
+
+/** 고장 신고. 성공하면 바뀐 차량 상태를 돌려줍니다. */
+export function sendMockFaultReport(vehicle: Vehicle, reason: string | null): Promise<Vehicle> {
+  return respond(() => applyMockFaultReport(vehicle, reason), ACTION_DELAY_MS, MOCK_SCENARIO === 'action-error');
 }

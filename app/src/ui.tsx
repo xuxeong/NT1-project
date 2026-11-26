@@ -74,23 +74,54 @@ export function SecondaryButton({ label, icon, onPress, disabled, loading, style
   );
 }
 
-/** 흰 바탕 + 파란 테두리 버튼 (Figma: Outline Button). 초기화 등에 사용 */
-export function OutlineButton({ label, onPress, disabled, style }: Omit<ButtonProps, 'icon'>) {
+/** 빨간 버튼 (고장 신고 등 위험한 동작) */
+export function DangerButton({ label, onPress, disabled, loading, style }: Omit<ButtonProps, 'icon'>) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
       onPress={onPress}
-      disabled={disabled}
+      disabled={disabled || loading}
+      style={({ pressed }) => [
+        styles.button,
+        styles.danger,
+        disabled && styles.disabled,
+        pressed && !disabled && !loading && styles.pressed,
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.onInk} />
+      ) : (
+        <Text style={[styles.buttonLabel, { color: colors.onInk }]}>{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+/** 흰 바탕 + 파란 테두리 버튼 (Figma: Outline Button). 초기화 등에 사용 */
+export function OutlineButton({ label, onPress, disabled, loading, style }: Omit<ButtonProps, 'icon'>) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
+      onPress={onPress}
+      disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
         styles.outline,
         disabled && styles.disabled,
-        pressed && !disabled && styles.pressed,
+        pressed && !disabled && !loading && styles.pressed,
         style,
       ]}
     >
-      <Text style={[styles.buttonLabel, { color: colors.accent }]}>{label}</Text>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.accent} />
+      ) : (
+        <Text style={[styles.buttonLabel, { color: colors.accent }]}>{label}</Text>
+      )}
     </Pressable>
   );
 }
@@ -200,6 +231,7 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: colors.accent },
   secondary: { backgroundColor: colors.subtle, borderWidth: 1, borderColor: colors.hairline },
   outline: { backgroundColor: colors.sheet, borderWidth: 1.5, borderColor: colors.accent },
+  danger: { backgroundColor: colors.danger },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.85 },
   buttonLabel: typography.button16,

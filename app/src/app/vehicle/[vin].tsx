@@ -4,7 +4,9 @@ import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'rea
 import { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CancelTaskDialog } from '@/components/CancelTaskDialog';
+import { CancelTaskDialog } from '@/components/ConfirmDialog';
+import { FaultCard } from '@/components/FaultCard';
+import { FaultReportModal } from '@/components/FaultReportModal';
 import { ErrorState } from '@/components/ErrorState';
 import {
   BulbIcon,
@@ -36,7 +38,7 @@ import { TaskInfoSheet } from '@/components/TaskInfoSheet';
 import { C_TRACK_CENTER } from '@/constants/map';
 import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
-import { fetchMockVehicle, sendMockAction } from '@/mocks/mockServer';
+import { fetchMockVehicle, sendMockAction, sendMockFaultReport } from '@/mocks/mockServer';
 import type { VehicleAction } from '@/mocks/vehicleActions';
 import { useToast } from '@/state/toast';
 import { colors, radius, typography } from '@/theme';
@@ -87,12 +89,13 @@ export default function VehicleDetailScreen() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [driveTypeOpen, setDriveTypeOpen] = useState(false);
   const [sensorSheetOpen, setSensorSheetOpen] = useState(false);
+  const [faultOpen, setFaultOpen] = useState(false);
 
   useEffect(() => {
     if (data) setVehicle(data);
   }, [data]);
 
-  const topBar = (onSensorsPress?: () => void) => (
+  const topBar = (onSensorsPress?: () => void, onFaultPress?: () => void) => (
     <View style={[styles.topBar, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
       <FloatingButton label="닫기" onPress={closeDetail}>
         <CloseIcon width={18} height={18} color={colors.ink} />
@@ -104,7 +107,7 @@ export default function VehicleDetailScreen() {
         <FloatingButton
           label="고장 신고"
           style={styles.faultButton}
-          onPress={() => Alert.alert('고장 신고', '고장 신고 화면은 준비 중이에요.')}
+          onPress={onFaultPress}
         >
           <WarningIcon width={16} height={16} color={colors.danger} />
           <Text style={styles.faultLabel}>고장 신고</Text>
@@ -170,6 +173,14 @@ export default function VehicleDetailScreen() {
     }
   };
 
+  /** 고장 신고 (FaultReportModal에서 호출). 실패하면 예외를 그대로 넘겨 화면에 오류 문구를 띄웁니다. */
+  const reportFault = async (reason: string) => {
+    const next = await sendMockFaultReport(vehicle, reason);
+    setVehicle(next);
+    setFaultOpen(false);
+    showToast('고장 신고를 접수했어요');
+  };
+
   const poweredOff = vehicle.driveMode === 0;
   const inMission = !poweredOff && (vehicle.missionStatus === 1 || vehicle.missionStatus === 2);
   const paused = vehicle.missionStatus === 2;
@@ -208,7 +219,10 @@ export default function VehicleDetailScreen() {
             <VehicleMarkerIcon width={48} height={48} />
           </Marker>
         </OsmMap>
-        {topBar(() => setSensorSheetOpen(true))}
+        {topBar(
+          () => setSensorSheetOpen(true),
+          () => setFaultOpen(true),
+        )}
       </View>
 
       {/* ── 바텀 시트 ── */}
@@ -265,6 +279,14 @@ export default function VehicleDetailScreen() {
               />
             )}
           </View>
+
+          {vehicle.faultReport && (
+            <FaultCard
+              report={vehicle.faultReport}
+              clearing={pending === 'clearFault'}
+              onClear={() => act('clearFault')}
+            />
+          )}
 
           {inMission ? (
             /* 이동 정보 카드(누르면 작업 정보) + 일시정지/주행 재개. 카드와 버튼 사이 20px */
@@ -381,6 +403,12 @@ export default function VehicleDetailScreen() {
           setTaskSheetOpen(false);
           setCancelDialogOpen(true);
         }}
+      />
+      <FaultReportModal
+        visible={faultOpen}
+        vehicle={vehicle}
+        onClose={() => setFaultOpen(false)}
+        onSubmit={reportFault}
       />
       <SensorStatusSheet visible={sensorSheetOpen} vehicle={vehicle} onClose={() => setSensorSheetOpen(false)} />
       <CancelTaskDialog
