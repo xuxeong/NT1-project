@@ -90,3 +90,27 @@
 * **작업 상태 및 다음 계획**:
   * 코드·테스트는 `feature/postgres-sqlalchemy-orm` 브랜치에 커밋·푸시 완료 (`main` 병합 전).
   * `feature/vehicle-api-refinement` 브랜치와 함께 `main` 병합 후 통합 동작 확인 및 ~11/29(일) 앱-서버 1차 연동 검증 진행 예정.
+
+---
+
+## [2026-11-26] 서버 재시작 시 DB 차량·작업 상태 이어받기(State Recovery) 및 앱 OSM 지도 타일 중계 API 구현
+
+* **담당 역할**: 서버 재시작 시 DB 저장 상태·미완료 배차 작업 복원(이어받기) 로직 및 앱 지도 배경용 OSM 타일 캐시·프록시 API 구현
+* **주요 작업 내용**:
+
+  1. **서버 재시작 시 DB 차량 상태 및 배차 작업 이어받기 (`app/db/repository.py`, `app/main.py`)**:
+     * 서버 기동(`lifespan`) 시 초기값으로 덮어쓰지 않고 `db_logger.restore_or_seed_simulator(simulator)`를 호출하도록 개선.
+     * `vehicles` 테이블에 저장된 차량별 최신 위·경도(`lat`, `lng`), 방위각(`heading`), 배터리(`battery`), 전원(`power`), 온라인(`online`), 고장 상태(`fault_status`, `fault_reason`)를 시뮬레이터에 그대로 복원.
+     * `mission_logs` 테이블에서 각 차량의 마지막 배차 작업을 조회하여:
+       * 주행 중(`1`) 또는 일시정지(`2`) 상태였던 미완료 작업은 현재 위치부터 목적지까지의 남은 도로 경로(`road_path`)와 전체 계획 경로 스냅샷(`coordinate_missions`)을 재구성하여 주행을 이어받거나(`resumed_driving`) 일시정지 상태를 유지(`restored_paused`).
+       * 도착 완료(`3`) 또는 취소(`4`) 상태였던 작업도 `_last_task_status` 및 작업 스냅샷을 복원하여 재시작 후에도 `getCurrentMission` 조회 결과가 유지되도록 처리.
+
+  2. **시연·테스트용 초기 상태 리셋 API 추가 (`POST /api/vehicles/reset`, `app/api/vehicles.py`)**:
+     * 재시작 이어받기 적용 후 시연이나 반복 테스트 시 초기 출발 위치·배터리·무작업 상태로 즉시 되돌릴 수 있는 `POST /api/vehicles/reset` 엔드포인트 및 `db_logger.reset_all_state()` 구현.
+
+  3. **앱팀 요청 OSM 지도 타일 캐시·중계(Proxy) API 구현 (`GET /tiles/{z}/{x}/{y}.png`, `app/main.py`)**:
+     * 모바일 앱(`react-native-maps`)이 OSM 타일 서버에 직접 요청할 때 User-Agent 헤더 제한으로 차단되는 문제를 해결하기 위해 `GET /tiles/{z}/{x}/{y}.png` (및 `/api/tiles/{z}/{x}/{y}.png`) 중계 엔드포인트 추가.
+     * 서버가 공식 User-Agent 헤더로 타일을 요청하고 로컬 `.tile_cache/` 디렉터리에 캐싱하여 재요청 시 외부 호출 없이 즉시 반환.
+
+  4. **자동화 테스트 검증 (`tests/test_db_persistence.py`)**:
+     * 서버 재시작 모사 시 주행 중(`1`) 작업 이어받아 목적지 도착 검증, 고장 일시정지(`2`) 작업 복원 검증, 완료(`3`) 상태 보존 검증, 상태 리셋(`/api/vehicles/reset`) 및 OSM 타일 중계(`/tiles/{z}/{x}/{y}.png`) 검증 테스트 추가 (전체 **45개 pytest 100% 통과**).
