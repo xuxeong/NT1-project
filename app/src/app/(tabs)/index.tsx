@@ -4,11 +4,14 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ErrorState } from '@/components/ErrorState';
 import { ClearIcon, FilterIcon, MapIcon, SearchIcon } from '@/components/icons';
 import { OsmMap } from '@/components/OsmMap';
+import { SkeletonBlock, SkeletonGroup, VehicleCardSkeleton } from '@/components/Skeleton';
 import { VehicleCard } from '@/components/VehicleCard';
+import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
-import { MOCK_VEHICLES } from '@/mocks/vehicles';
+import { fetchMockVehicles } from '@/mocks/mockServer';
 import { isFilterActive, matchesFilter, useVehicleFilter } from '@/state/vehicleFilter';
 import { colors, radius, typography } from '@/theme';
 import type { Vehicle } from '@/types/vehicle';
@@ -17,7 +20,7 @@ import { waGwa } from '@/utils/korean';
 /**
  * 차량 목록
  * 왼쪽 위 지도 버튼으로 지도 보기(매뉴얼 3.2)와 목록 보기를 오갑니다.
- * 서버 연동 전까지는 임시 데이터(MOCK_VEHICLES)를 보여 줍니다.
+ * 서버 연동 전까지는 임시 데이터를 조금 늦게 받아서 로딩·오류 화면도 확인합니다 (mocks/mockServer.ts).
  */
 export default function VehicleListScreen() {
   const insets = useSafeAreaInsets();
@@ -30,7 +33,11 @@ export default function VehicleListScreen() {
   const { applied: filter } = useVehicleFilter();
   const filterOn = isFilterActive(filter);
 
-  const vehicles: Vehicle[] = MOCK_VEHICLES;
+  const { data, loading, error, reload } = useAsync(fetchMockVehicles, []);
+  const vehicles: Vehicle[] = useMemo(() => data ?? [], [data]);
+  // 처음 불러오는 중이거나 실패했을 때 (이미 받은 목록이 있으면 그대로 보여 줌)
+  const showLoading = loading && !data;
+  const showError = !!error && !data;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return vehicles.filter(
@@ -81,12 +88,26 @@ export default function VehicleListScreen() {
             </Pressable>
           )}
         </View>
-        <Text style={styles.count}>
-          {trimmed || filterOn ? `검색 결과 ${filtered.length}대` : `전체 ${vehicles.length}대`}
-        </Text>
+        {showLoading ? (
+          <SkeletonGroup>
+            <SkeletonBlock width={52} height={14} style={styles.countSkeleton} />
+          </SkeletonGroup>
+        ) : (
+          <Text style={styles.count}>
+            {showError ? ' ' : trimmed || filterOn ? `검색 결과 ${filtered.length}대` : `전체 ${vehicles.length}대`}
+          </Text>
+        )}
       </View>
 
-      {mode === 'list' ? (
+      {showError ? (
+        <ErrorState surface="page" onRetry={reload} style={styles.errorState} />
+      ) : mode === 'list' && showLoading ? (
+        <SkeletonGroup style={styles.list}>
+          {[0, 1, 2, 3].map((i) => (
+            <VehicleCardSkeleton key={i} />
+          ))}
+        </SkeletonGroup>
+      ) : mode === 'list' ? (
         <FlatList
           data={filtered}
           keyExtractor={(v) => v.vin}
@@ -224,6 +245,9 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   },
   count: { ...typography.label12, color: colors.textSecondary },
+  // 글자 줄 높이(16)에 맞춰 위아래 1씩 띄웁니다
+  countSkeleton: { marginVertical: 1 },
+  errorState: { paddingTop: 96 },
   list: { paddingTop: 10, paddingHorizontal: 16, paddingBottom: 16, gap: 12 },
   emptyWrap: { alignItems: 'center', gap: 12, paddingTop: 96 },
   emptyIcon: {
