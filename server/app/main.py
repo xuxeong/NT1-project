@@ -10,11 +10,14 @@ from app.config import PROJECT_NAME, PROJECT_VERSION, API_V1_PREFIX
 from app.api import vehicles_router, dispatch_router, routes_router
 from app.api.neolix import router as neolix_router
 from app.simulator.vehicle_sim import simulator
+from app.db.repository import db_logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 서버 기동 시: 가상 주행 물리 시뮬레이션 백그라운드 태스크 시작
+    # 서버 기동 시: DB 테이블 초기화, 초기 차량 동기화 및 1Hz 시뮬레이션 태스크 시작
+    for v in simulator.get_all_vehicles():
+        db_logger.sync_vehicle(v)
     simulator.start_background_loop()
     yield
     # 서버 종료 시: 시뮬레이션 태스크 정리
@@ -29,7 +32,7 @@ app = FastAPI(
 
 NT1 실습 프로젝트 SW Architecture를 준수하여 구현된 **FastAPI 기반 Mock 서버**입니다.
 - **가상 차량 시뮬레이션 엔진**: 충북대 C-Track 테스트베드 경로를 따라 초당 1회(1Hz) 위경도 보간 주행
-- **표준 REST API**: 차량 상태 조회, 배차 명령, 비상 정차, 전원/조명/도어 제어
+- **표준 REST API**: 차량 상태 조회, 배차 명령, 비상 정차, 전원 제어
 - **실시간 WebSocket 텔레메트리**: `/ws/telemetry`를 통한 초당 1회 실시간 위치 스트리밍
     """,
     lifespan=lifespan,

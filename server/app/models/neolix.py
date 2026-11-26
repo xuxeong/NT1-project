@@ -50,14 +50,14 @@ class VehicleStatusFields(BaseModel):
     gear: Literal['P', 'R', 'N', 'D']
     speed: float = Field(description='km/h')
     position: Position
-    realBattery: int = Field(description='배터리 잔량(%)')
-    mile: float = Field(description='남은 주행 가능 거리(km)')
+    realBattery: int = Field(description='배터리 잔량(%). 내부 battery를 정수 반올림한 값')
+    mile: float = Field(description='배터리 기반 예상 주행 가능 거리(km), 소수 첫째 자리. 목적지까지의 경로 거리와 다릅니다.')
     occurTimestamp: int = Field(description='밀리초 단위 발생 시각')
     powerState: bool = Field(description='온라인 여부. 전원 명령 결과와 다릅니다.')
 
 
 class VehicleInfo(VehicleStatusFields):
-    gnssHead: float
+    gnssHead: float = Field(ge=0, lt=360, description='방위각(도). 북쪽 0, 동쪽 90, 남쪽 180, 서쪽 270. 정차 시 마지막 방향 유지')
     parkCode: str
     parkName: str
 

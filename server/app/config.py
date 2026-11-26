@@ -7,6 +7,7 @@ API_V1_PREFIX = "/api"
 # Server configuration
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8000))
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./neolix_mock.db")
 
 # Simulation settings
 SIMULATION_INTERVAL_SEC = 1.0  # 1초마다 텔레메트리 갱신

@@ -5,7 +5,7 @@
 """
 from typing import List
 from app.models.route import Stop, Route
-from app.models.vehicle import VehicleState, ServiceType, OperationStatus, Gear, VehicleLights
+from app.models.vehicle import VehicleState, ServiceType, OperationStatus, Gear
 
 # 고정 거점은 사용하지 않습니다. 기존 지점 API용 저장소는 빈 상태로 시작합니다.
 
@@ -29,8 +29,6 @@ INITIAL_VEHICLES: List[VehicleState] = [
         speed_kmh=0.0,
         gear=Gear.P,
         battery=98.5,
-        door_open=False,
-        lights=VehicleLights(low=False, high=False, beacon=False, fog=False),
         location_name="초기 위치",
     ),
     VehicleState(
@@ -47,8 +45,6 @@ INITIAL_VEHICLES: List[VehicleState] = [
         speed_kmh=0.0,
         gear=Gear.P,
         battery=89.0,
-        door_open=False,
-        lights=VehicleLights(low=True, high=False, beacon=True, fog=False),
         location_name="초기 위치",
     ),
 ]
