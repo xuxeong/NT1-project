@@ -43,11 +43,14 @@ async def dispatch_vehicle(req: DispatchRequest):
             if req.target_lat is None or req.target_lng is None or req.target_stop_id:
                 raise HTTPException(status_code=422, detail="목적지 위도·경도를 함께 보내 주세요.")
             try:
-                plan = simulator.start_dispatch_coordinate(req.vehicle_id, req.target_lat, req.target_lng)
+                plan = simulator.start_dispatch_coordinate(
+                    req.vehicle_id, req.target_lat, req.target_lng, target_name=req.target_name
+                )
             except ValueError as error:
                 raise HTTPException(status_code=422, detail=str(error)) from error
+            label = (req.target_name or "").strip() or "지도에서 선택한 목적지"
             return CommandResponse(
-                ok=True, message="지도에서 선택한 목적지로 주행을 시작했습니다.",
+                ok=True, message=f"{label}(으)로 주행을 시작했습니다.",
                 vehicle_id=req.vehicle_id, target=plan['target'], path=plan['path'],
             )
         if not req.target_stop_id:

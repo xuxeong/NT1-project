@@ -152,10 +152,11 @@ def resolve_mission(vin: str) -> Mission | None:
     if record is not None and (mission is None or mission.task is not record['task']):
         mission_id = next(mission_ids)
         points = record['path']
+        dest_name = record['task'].target_stop_name or '지도에서 선택한 목적지'
         mission = Mission(
             mission_id,
             Stop(id=f's{-2 * mission_id}', name='배차 출발 위치', **points[0]),
-            Stop(id=f's{-2 * mission_id - 1}', name='지도에서 선택한 목적지', **points[-1]),
+            Stop(id=f's{-2 * mission_id - 1}', name=dest_name, **points[-1]),
             record['task'], points,
         )
         missions[vin] = mission
