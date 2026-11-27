@@ -358,11 +358,15 @@ class DatabaseLogger:
     def reset_all_state(self, sim) -> None:
         """시뮬레이터 메모리 상태와 DB 테이블을 초기 출발 상태로 초기화합니다."""
         from copy import deepcopy
-        from app.simulator.c_track_data import INITIAL_VEHICLES
+        from app.simulator.c_track_data import INITIAL_AOIS, INITIAL_STOPS, INITIAL_VEHICLES
         from app.api import neolix as neolix_api
 
         self.ensure_initialized()
         sim.vehicles = {v.id: deepcopy(v) for v in INITIAL_VEHICLES}
+        sim.stops = {s.id: deepcopy(s) for s in INITIAL_STOPS}
+        sim.aois = {a.id: deepcopy(a) for a in INITIAL_AOIS}
+        sim._next_stop_seq = 1
+        sim._next_aoi_seq = 2
         sim._target_queues.clear()
         sim._waypoints.clear()
         sim._loop_routes.clear()
@@ -476,8 +480,8 @@ def attach_simulator_hooks(sim_cls) -> None:
                 )
         return ok
 
-    def start_dispatch_coordinate(self, vehicle_id, lat, lng):
-        plan = orig_start_coord(self, vehicle_id, lat, lng)
+    def start_dispatch_coordinate(self, vehicle_id, lat, lng, *args, **kwargs):
+        plan = orig_start_coord(self, vehicle_id, lat, lng, *args, **kwargs)
         v = self.vehicles.get(vehicle_id)
         if v and v.task:
             db_logger.log_mission_start(

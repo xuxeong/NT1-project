@@ -11,8 +11,8 @@ from copy import deepcopy
 from app.simulator.road_network import road_path, path_length, snap_to_road
 from typing import Dict, List, Optional
 from app.models.vehicle import VehicleState, VehicleTask, TaskPhase, TaskStatus, Gear
-from app.models.route import Stop, Route
-from app.simulator.c_track_data import INITIAL_STOPS, INITIAL_ROUTES, INITIAL_VEHICLES
+from app.models.route import Stop, Route, AoiRegion
+from app.simulator.c_track_data import INITIAL_STOPS, INITIAL_ROUTES, INITIAL_AOIS, INITIAL_VEHICLES
 
 
 def haversine_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -47,7 +47,10 @@ class VehicleSimulator:
         # 메모리 상태 캐시
         self.stops: Dict[str, Stop] = {s.id: s for s in INITIAL_STOPS}
         self.routes: Dict[str, Route] = {r.id: r for r in INITIAL_ROUTES}
+        self.aois: Dict[str, AoiRegion] = {a.id: deepcopy(a) for a in INITIAL_AOIS}
         self.vehicles: Dict[str, VehicleState] = {v.id: deepcopy(v) for v in INITIAL_VEHICLES}
+        self._next_stop_seq: int = 1
+        self._next_aoi_seq: int = 2
         
         # 내부 주행 경로 큐 (vehicle_id -> [stop_id, stop_id, ...])
         self._target_queues: Dict[str, List[str]] = {}
@@ -70,6 +73,66 @@ class VehicleSimulator:
 
     def get_all_routes(self) -> List[Route]:
         return list(self.routes.values())
+
+    def get_all_aois(self) -> List[AoiRegion]:
+        return list(self.aois.values())
+
+    def add_stop(self, name: str, lat: float, lng: float) -> Stop:
+        """선택한 위경도를 가장 가까운 C-Track 도로 선분 위로 보정하여 POI(거점 지점)로 등록합니다."""
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("POI 이름을 입력해 주세요.")
+        snapped = snap_to_road((lat, lng), max_distance_m=None)
+        snapped_lat, snapped_lng = round(snapped["point"][0], 7), round(snapped["point"][1], 7)
+        while f"s{self._next_stop_seq}" in self.stops:
+            self._next_stop_seq += 1
+        stop_id = f"s{self._next_stop_seq}"
+        self._next_stop_seq += 1
+        stop = Stop(id=stop_id, name=clean_name, lat=snapped_lat, lng=snapped_lng)
+        self.stops[stop_id] = stop
+        return stop
+
+    def delete_stop(self, stop_id: str) -> bool:
+        return self.stops.pop(stop_id, None) is not None
+
+    def add_aoi(
+        self,
+        name: str,
+        color: str = "#10b981",
+        polygon: Optional[List[dict[str, float]]] = None,
+        center_lat: Optional[float] = None,
+        center_lng: Optional[float] = None,
+        radius_m: float = 160.0,
+    ) -> AoiRegion:
+        """새 AOI(운행 구역) 폴리곤을 생성하고 시뮬레이터에 등록합니다."""
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("AOI 구역 이름을 입력해 주세요.")
+        if polygon and len(polygon) >= 3:
+            poly = [{"lat": round(float(p["lat"]), 7), "lng": round(float(p["lng"]), 7)} for p in polygon]
+        else:
+            c_lat = center_lat if center_lat is not None else 36.7285
+            c_lng = center_lng if center_lng is not None else 127.4410
+            d_lat = radius_m / 111320.0
+            d_lng = radius_m / (111320.0 * max(0.2, math.cos(math.radians(c_lat))))
+            poly = [
+                {"lat": round(c_lat + d_lat, 7), "lng": round(c_lng - d_lng, 7)},
+                {"lat": round(c_lat + d_lat, 7), "lng": round(c_lng + d_lng, 7)},
+                {"lat": round(c_lat - d_lat, 7), "lng": round(c_lng + d_lng, 7)},
+                {"lat": round(c_lat - d_lat, 7), "lng": round(c_lng - d_lng, 7)},
+            ]
+        while f"MOCK_AOI_{self._next_aoi_seq:02d}" in self.aois:
+            self._next_aoi_seq += 1
+        aoi_id = f"MOCK_AOI_{self._next_aoi_seq:02d}"
+        self._next_aoi_seq += 1
+        region = AoiRegion(id=aoi_id, name=clean_name, color=color, polygon=poly)
+        self.aois[aoi_id] = region
+        return region
+
+    def delete_aoi(self, aoi_id: str) -> bool:
+        if aoi_id == "MOCK_AOI_01":
+            raise ValueError("기본 C-Track 오창 AOI 구역은 삭제할 수 없습니다.")
+        return self.aois.pop(aoi_id, None) is not None
 
     def start_dispatch_point(self, vehicle_id: str, target_stop_id: str) -> bool:
         """단일 지점 배차 명령"""
@@ -116,7 +179,7 @@ class VehicleSimulator:
             'path': [{'lat': p[0], 'lng': p[1]} for p in points],
         }
 
-    def start_dispatch_coordinate(self, vehicle_id, lat, lng):
+    def start_dispatch_coordinate(self, vehicle_id, lat, lng, target_name: Optional[str] = None):
         vehicle = self.vehicles[vehicle_id]
         if not vehicle.dispatch_available:
             raise ValueError("현재 차량 상태에서 배차할 수 없습니다.")
@@ -126,9 +189,10 @@ class VehicleSimulator:
         self._target_queues[vehicle_id] = []
         self._loop_routes.pop(vehicle_id, None)
         self._loop_started.discard(vehicle_id)
+        resolved_name = (target_name or '').strip() or '지도에서 선택한 목적지'
         vehicle.task = VehicleTask(
             task_id=f'pin_{time.time_ns()}', kind='point',
-            target_stop_name='지도에서 선택한 목적지',
+            target_stop_name=resolved_name,
             target_lat=plan['target']['lat'], target_lng=plan['target']['lng'],
             total_distance_m=plan['distance_m'],
             remaining_distance_m=plan['distance_m'],
