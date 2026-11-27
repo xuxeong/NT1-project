@@ -102,6 +102,7 @@ docker-compose up -d --build
 
 | Method | Endpoint | 설명 |
 |---|---|---|
+| `GET` | `/api/dispatch/{id}/route` | 현재 작업의 확정 경로 조회. 서버 재시작 후 복원된 좌표 작업 포함 |
 | `POST` | `/api/dispatch/preview` | 지도 선택 좌표의 C-Track 도로 선분 보정(Projection) 및 최단경로 미리보기 계산 |
 | `POST` | `/api/dispatch` | 지도에서 선택한 목적지 좌표(`target_lat`, `target_lng`)로 배차 확정 및 주행 시작 |
 | `POST` | `/api/dispatch/{id}/pause` | 관제 대시보드용 주행 일시정지 |
@@ -195,3 +196,9 @@ pytest
 - 이 조회는 서버 재시작 후 작업 복원 기능과 별개입니다.
 
 검증 결과: 전체 pytest 49개 통과. 임시 SQLite DB로 서버 기동 후 통합·분리 이력 API의 200 응답을 확인했습니다. PostgreSQL·기존 사용자 DB 적용·실제 앱 연동은 미검증입니다.
+
+## 대시보드 확정 주행 경로
+
+대시보드는 차량의 현재 작업 ID를 기준으로 서버에서 확정 경로를 불러옵니다. 화면 새로고침이나 서버 재시작 후에도 복원된 주행·일시정지 작업의 보라색 경로와 목적지 마커를 표시합니다. 새 작업으로 바뀌면 경로를 갱신하며 취소·초기화 시 이전 경로를 지웁니다.
+
+`GET /api/dispatch/{id}/route`는 현재 작업의 `task_id`와 `path`를 반환합니다. 작업이 없으면 `task_id=null`, `path=[]`이며 없는 차량은 404입니다. 조회는 새 배차를 생성하지 않습니다.

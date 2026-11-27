@@ -297,6 +297,8 @@
     const vehiclesById = new Map();
     const vehicleMarkers = new Map();
     const confirmedRoutes = new Map();
+    const confirmedRouteTasks = new Map();
+    const routeRequests = new Map();
     let destinationMarker = null;
     let destinationPlan = null;
     let destinationPath = null;
@@ -363,6 +365,41 @@
       addLog(`선택 차량 변경: ${vehiclesById.get(id).name} (${id})`);
     }
 
+    async function syncConfirmedRoute(vehicle) {
+      const id = vehicle.id;
+      const taskId = vehicle.task?.task_id ?? null;
+      if (!taskId) {
+        // 작업 취소·초기화 시 이전 작업 경로를 지웁니다.
+        const hadRoute = confirmedRoutes.delete(id);
+        confirmedRouteTasks.delete(id);
+        if (hadRoute && id === selectedVehicleId) showConfirmedRoute();
+        return;
+      }
+      if (confirmedRouteTasks.get(id) === taskId || routeRequests.has(id)) return;
+      // 새 작업에 이전 작업의 선을 표시하지 않습니다.
+      if (confirmedRouteTasks.has(id) && confirmedRouteTasks.get(id) !== taskId) {
+        confirmedRoutes.delete(id);
+        confirmedRouteTasks.delete(id);
+        if (id === selectedVehicleId) showConfirmedRoute();
+      }
+      routeRequests.set(id, taskId);
+      try {
+        const response = await fetch(`/api/dispatch/${encodeURIComponent(id)}/route`, {cache: 'no-store'});
+        if (!response.ok) throw new Error('확정 경로 조회 실패');
+        const data = await response.json();
+        // 응답을 기다리는 동안 새 배차·취소·차량 전환이 발생할 수 있습니다.
+        if (vehiclesById.get(id)?.task?.task_id !== taskId || data.task_id !== taskId) return;
+        confirmedRoutes.set(id, data.path);
+        confirmedRouteTasks.set(id, taskId);
+        if (id === selectedVehicleId) showConfirmedRoute();
+      } catch (error) {
+        // 다음 텔레메트리에서 재시도합니다.
+        console.warn('확정 경로 조회 실패:', id, error);
+      } finally {
+        routeRequests.delete(id);
+      }
+    }
+
     function updateVehicleMarkerStyles() {
       vehicleMarkers.forEach((marker, id) => {
         const element = marker.getElement();
@@ -383,10 +420,12 @@
           vehicleMarkers.delete(id);
           vehiclesById.delete(id);
           confirmedRoutes.delete(id);
+          confirmedRouteTasks.delete(id);
         }
       });
       vehicles.forEach(v => {
         vehiclesById.set(v.id, v);
+        syncConfirmedRoute(v);
         let marker = vehicleMarkers.get(v.id);
         if (!marker) {
           const label = document.createElement('span');

@@ -5,6 +5,20 @@ from app.simulator.vehicle_sim import simulator
 router = APIRouter(prefix="/dispatch", tags=["Dispatch (배차 및 주행 제어)"])
 
 
+@router.get("/{vehicle_id}/route", summary="현재 작업의 확정 주행 경로 조회")
+async def get_dispatch_route(vehicle_id: str):
+    """새 화면에서도 재시작 후 복원된 좌표 작업의 전체 경로를 조회합니다."""
+    vehicle = simulator.get_vehicle(vehicle_id)
+    if vehicle is None:
+        raise HTTPException(status_code=404, detail="차량을 찾을 수 없습니다.")
+    mission = simulator.coordinate_missions.get(vehicle_id)
+    task = vehicle.task
+    path = []
+    if task and mission and mission["task"].task_id == task.task_id:
+        path = mission["path"]
+    return {"vehicle_id": vehicle_id, "task_id": task.task_id if task else None, "path": path}
+
+
 @router.post("", response_model=CommandResponse, summary="차량 배차 요청 (지도 좌표)")
 async def dispatch_vehicle(req: DispatchRequest):
     """
