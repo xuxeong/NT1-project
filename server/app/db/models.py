@@ -70,3 +70,35 @@ class VehicleEventRecord(Base):
     battery: Mapped[float] = mapped_column(Float, default=100.0)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class ManagerAccountRecord(Base):
+    """DB에 사전 적재되는 가상 담당자 계정 및 담당 차량·AOI·연락처 테이블 (manager_accounts)"""
+    __tablename__ = "manager_accounts"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True, comment="담당자 로그인 계정 ID")
+    password: Mapped[str] = mapped_column(String(128), nullable=False, comment="가상 계정 비밀번호")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="담당자 이름")
+    phone: Mapped[str] = mapped_column(String(40), nullable=False, comment="도착·고장 알림 수신 연락처")
+    role: Mapped[str] = mapped_column(String(40), default="manager", comment="역할 (manager / admin)")
+    assigned_aoi: Mapped[str] = mapped_column(String(100), default="C-Track 오창", comment="담당 AOI 운행 구역")
+    assigned_vehicles_csv: Mapped[str] = mapped_column(
+        String(255), default="X3S1181", comment="할당된 관리 차량 VIN 목록 (쉼표 구분)"
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class ManagerNotificationRecord(Base):
+    """차량 도착(ARRIVED) 및 고장/이상(FAULT_REPORT) 발생 시 담당자 연락처 알림 발송 이력 (manager_notifications)"""
+    __tablename__ = "manager_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False, comment="수신 담당자 계정 ID")
+    manager_name: Mapped[str] = mapped_column(String(100), nullable=False, comment="수신 담당자 이름")
+    contact_phone: Mapped[str] = mapped_column(String(40), nullable=False, comment="알림 발송 연락처")
+    vehicle_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False, comment="대상 차량 VIN")
+    trigger_type: Mapped[str] = mapped_column(
+        String(40), index=True, nullable=False, comment="ARRIVED(도착 알림) 또는 FAULT_REPORT(차량 이상 알림)"
+    )
+    message: Mapped[str] = mapped_column(Text, nullable=False, comment="발송된 알림 메시지 본문")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

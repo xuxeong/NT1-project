@@ -189,12 +189,21 @@ def status_fields(state: VehicleState):
 
 
 @api.get("/getVehicleList", response_model=FlaggedResponse[list[VehicleListItem]], responses=AUTH_ERRORS,
-          summary="차량 목록 조회", description="userId는 선택 입력이며 현재 Mock에서는 결과를 필터링하지 않습니다.")
+          summary="차량 목록 조회 · 담당자 계정별 할당 차량 필터링",
+          description="userId를 생략하면 전체 차량을 반환하고, DB에 등록된 담당자 userId(예: manager1, manager2, admin)를 전달하면 해당 담당자에게 할당된 차량만 필터링하여 반환합니다.")
 async def list_vehicles(userId: str | None = None):
+    from app.db import repository as repo_module
+
+    all_vehicles = simulator.get_all_vehicles()
+    if userId and userId.strip():
+        mgr = repo_module.db_logger.get_manager(userId.strip())
+        if mgr is not None:
+            allowed_vins = set(mgr["assigned_vehicle_ids"])
+            all_vehicles = [v for v in all_vehicles if v.id in allowed_vins]
     return success([
         {"vin": v.id, "vinId": v.name, "vinCode": v.id, "parkCode": "MOCK_AOI_01",
          "parkName": v.aoi, "cabinCode": ""}
-        for v in simulator.get_all_vehicles()
+        for v in all_vehicles
     ], include_flag=True)
 
 

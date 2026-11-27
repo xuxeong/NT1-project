@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import PROJECT_NAME, PROJECT_VERSION, API_V1_PREFIX
-from app.api import vehicles_router, dispatch_router, routes_router
+from app.api import vehicles_router, dispatch_router, routes_router, managers_router
 from app.api.neolix import router as neolix_router
 from app.simulator.vehicle_sim import simulator
 from app.db.repository import db_logger
@@ -66,6 +66,7 @@ app.add_middleware(
 app.include_router(vehicles_router, prefix=API_V1_PREFIX)
 app.include_router(dispatch_router, prefix=API_V1_PREFIX)
 app.include_router(routes_router, prefix=API_V1_PREFIX)
+app.include_router(managers_router, prefix=API_V1_PREFIX)
 app.include_router(neolix_router)
 
 

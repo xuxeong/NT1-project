@@ -138,3 +138,9 @@
      * 11/27 4차 멘토링 요청사항(AOI 생성 및 POI 설정 시연)에 맞춰 C-Track 기본 운행 구역(`MOCK_AOI_01`: `C-Track 오창`) 경계 폴리곤 데이터(`INITIAL_AOIS`)와 동적 AOI 조회·생성·삭제 API(`GET/POST/DELETE /api/aois`) 구현.
      * 지도 중앙 핀(`📍`)으로 선택한 좌표를 C-Track 도로 선분 위로 자동 보정(Snap)하여 이름을 붙인 POI(거점)로 등록·삭제하는 API(`POST/DELETE /api/stops`)를 추가하고, 등록된 POI가 학생 앱 지점 조회 API(`POST /openapi-server/slvapi/listStationByVin/v1`) 및 좌표 배차(`target_name`)와 연동되도록 연결.
      * 관제 대시보드(`/dashboard`)에 **AOI 반경 슬라이더(`40m~400m`) 실시간 미리보기**, **지도 클릭 기반 다각형(Polygon) 직접 그리기 모드**, **현재 핀 위치 POI 등록 및 원클릭 POI 목적지 배차**, **초기 상태 리셋(`🔄 초기 리셋`)** UI를 구축하고 비동기 통합 테스트(`tests/test_aoi_poi.py`) 검증 완료 (전체 **52개 pytest 100% 통과**).
+
+  5. **11/27 멘토링 확정 요구사항 반영: DB 가상 담당자 계정 로그인, 계정별 할당 차량 필터링 및 도착·고장 시 담당자 연락처 알림 기능 구현 (`app/db/models.py`, `app/db/repository.py`, `app/api/managers.py`, `app/api/neolix.py`, `tests/test_manager_auth.py`)**:
+     * 회원가입 없이 사전 적재된 가상 계정으로 로그인할 수 있도록 `ManagerAccountRecord`(`manager_accounts`) ORM 테이블 및 기본 시드 계정 3종(`manager1`: 1호차 담당, `manager2`: 2호차 담당, `admin`: 1·2호차 전체 담당) 자동 적재 로직(`ensure_default_managers`) 구현.
+     * 담당자 로그인(`POST /api/managers/login`), 계정 목록·상세 조회(`GET /api/managers`, `GET /api/managers/{user_id}`), 담당자 연락처·할당 차량 수정(`PATCH /api/managers/{user_id}/contact`) API 추가.
+     * `GET /openapi-server/slvapi/getVehicleList?userId=...` 및 `GET /api/vehicles?user_id=...` 호출 시 `userId`가 생략되면 기존 1차 연동과 동일하게 전체 차량을 반환하고, 로그인한 담당자 `userId`가 전달되면 해당 계정에 할당된 차량만 필터링하여 반환하도록 하위 호환 연동.
+     * 차량 목적지 도착(`ARRIVED`) 및 고장 신고(`FAULT_REPORT`) 발생 시 해당 차량 담당자의 연락처(`phone`)로 알림을 자동 발송·기록하는 `ManagerNotificationRecord`(`manager_notifications`) 및 알림 이력 조회 API(`GET /api/managers/notifications`) 구현 (전체 **53개 pytest 100% 통과**).
