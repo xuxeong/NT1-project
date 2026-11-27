@@ -19,6 +19,9 @@ def test_point_motion_pause_and_arrival():
     sim.tick_one_second()
     assert 4.1 < distance(before, (v.lat, v.lng)) < 4.2
     assert abs(v.task.remaining_distance_m - (initial_distance - 15/3.6)) < 0.05
+    assert v.task.total_distance_m == round(initial_distance, 1)
+    assert 0.0 < v.task.progress_percent < 100.0
+    assert v.task.started_at_ms > 0
     sim.pause(v.id)
     before = (v.lat, v.lng)
     sim.tick_one_second()
