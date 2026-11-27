@@ -15,6 +15,14 @@ from app.db.repository import db_logger
 
 TILE_CACHE_DIR = Path(__file__).resolve().parent.parent / ".tile_cache"
 OSM_TILE_HEADERS = {"User-Agent": "NT1-Neolix-Mock-Server/0.1 (Gachon-University-C-Track-Simulator)"}
+_osm_http_client: httpx.AsyncClient | None = None
+
+
+def get_osm_http_client() -> httpx.AsyncClient:
+    global _osm_http_client
+    if _osm_http_client is None or _osm_http_client.is_closed:
+        _osm_http_client = httpx.AsyncClient(headers=OSM_TILE_HEADERS, timeout=10.0)
+    return _osm_http_client
 
 
 @asynccontextmanager
@@ -23,8 +31,12 @@ async def lifespan(app: FastAPI):
     db_logger.restore_or_seed_simulator(simulator)
     simulator.start_background_loop()
     yield
-    # 서버 종료 시: 시뮬레이션 태스크 정리
+    # 서버 종료 시: 시뮬레이션 태스크 및 외부 HTTP 커넥션 풀 정리
     simulator.stop_background_loop()
+    global _osm_http_client
+    if _osm_http_client is not None and not _osm_http_client.is_closed:
+        await _osm_http_client.aclose()
+        _osm_http_client = None
 
 
 app = FastAPI(
@@ -101,8 +113,8 @@ async def proxy_osm_tile(z: int, x: int, y: int):
         )
     url = f"https://tile.openstreetmap.org/{z}/{x}/{y}.png"
     try:
-        async with httpx.AsyncClient(headers=OSM_TILE_HEADERS, timeout=10.0) as client:
-            resp = await client.get(url)
+        client = get_osm_http_client()
+        resp = await client.get(url)
         if resp.status_code != 200:
             raise HTTPException(status_code=resp.status_code, detail="OSM 타일 조회 실패")
         cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +138,7 @@ async def websocket_telemetry(websocket: WebSocket):
     await websocket.accept()
     try:
         while True:
-            data = [v.model_dump() for v in simulator.get_all_vehicles()]
+            data = [v.model_dump(mode="json") for v in simulator.get_all_vehicles()]
             await websocket.send_text(json.dumps({"type": "telemetry", "vehicles": data}, ensure_ascii=False))
             await asyncio.sleep(1.0)
     except WebSocketDisconnect:
