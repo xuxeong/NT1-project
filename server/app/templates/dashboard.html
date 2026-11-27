@@ -124,16 +124,38 @@
       justify-content: center;
       gap: 6px;
     }
-    select, input[type="number"] { width:100%; box-sizing:border-box; padding:10px; border:1px solid #475569; border-radius:6px; background:#1e293b; color:#f8fafc; font:inherit; }
+    select, input[type="number"], input[type="text"] { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #475569; border-radius:6px; background:#1e293b; color:#f8fafc; font:inherit; font-size:12px; }
     button:disabled { opacity:0.5; cursor:default; }
     .btn-primary { background: #0284c7; color: white; }
     .btn-primary:hover { background: #0369a1; }
+    .btn-success { background: #10b981; color: #022c22; }
+    .btn-success:hover { background: #059669; color: white; }
     .btn-secondary { background: #334155; color: #f8fafc; }
     .btn-secondary:hover { background: #475569; }
     .btn-warning { background: #f59e0b; color: black; }
     .btn-warning:hover { background: #d97706; }
     .btn-danger { background: #ef4444; color: white; }
     .btn-danger:hover { background: #dc2626; }
+    .btn-sm { padding: 5px 8px; font-size: 11px; border-radius: 5px; }
+    .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;
+      background: #1e293b; border: 1px solid #475569; color: #e2e8f0; cursor: pointer;
+    }
+    .chip:hover { border-color: #38bdf8; color: #38bdf8; }
+    .chip.active { background: #0284c7; border-color: #38bdf8; color: #fff; }
+    .chip-del {
+      background: none; border: none; color: #94a3b8; font-size: 12px;
+      padding: 0 2px; cursor: pointer; line-height: 1;
+    }
+    .chip-del:hover { color: #ef4444; }
+    .poi-marker {
+      background: #f59e0b; color: #0f172a; border: 2px solid #ffffff;
+      border-radius: 50%; width: 24px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
 
     /* 실시간 로그 */
     .log-box {
@@ -200,7 +222,10 @@
         <span>🚗</span> Neolix C-Track 관제
         <span class="badge" id="connStatus">연결 대기중</span>
       </h1>
-      <p>가천대 실습 프로젝트 · NT1 Mock Server</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+        <p style="margin:0;">가천대 실습 프로젝트 · NT1 Mock Server</p>
+        <button class="btn-secondary btn-sm" onclick="resetAllState()" title="차량 위치·배터리·작업 및 AOI/POI를 초기 상태로 리셋합니다">🔄 초기 리셋</button>
+      </div>
     </div>
 
     <div class="content">
@@ -250,13 +275,52 @@
         </div>
       </div>
 
-      <details class="card" open>
+      <details class="card">
         <summary class="card-title" style="cursor:pointer;">차량 제원 · <span id="specModel">수신 대기</span></summary>
         <div class="sensor-list" id="vehicleSpecs">
           <div><span>차량 제원</span><span>수신 대기</span></div>
         </div>
         <p id="specPlatform" class="metric-label" style="margin-top:12px;line-height:1.6;"></p>
       </details>
+
+      <!-- AOI (운행 구역) 및 POI (관심 거점) 설정 카드 -->
+      <div class="card">
+        <div class="card-title">
+          <span>🗺️ AOI (운행 구역) & POI (거점) 설정</span>
+          <span id="aoiCountBadge" style="color:#38bdf8; font-size:11px;">AOI 1 · POI 0</span>
+        </div>
+        <div class="btn-group">
+          <div class="metric-label" style="text-align:left;">
+            <strong>1. AOI (Area of Interest, 운행 구역) 생성</strong> · 크기(반경)를 조절하거나 지도에 직접 꼭짓점을 찍어 구역을 생성합니다.
+          </div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="aoiNameInput" placeholder="예: C-Track 북측 시험구역" value="C-Track 북측 시험구역" />
+            <button class="btn-secondary btn-sm" style="white-space:nowrap;" onclick="createAoiFromMapCenter()">+ AOI 생성</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+            <span class="metric-label" style="margin:0; white-space:nowrap;">구역 반경: <strong id="aoiRadiusLabel" style="color:#38bdf8;">145m</strong></span>
+            <input type="range" id="aoiRadiusSlider" min="40" max="400" step="15" value="145" style="flex:1; accent-color:#38bdf8; cursor:pointer;" oninput="onAoiRadiusChange(this.value)" />
+            <button class="btn-secondary btn-sm" id="drawAoiModeBtn" style="white-space:nowrap;" onclick="toggleAoiDrawMode()">✏️ 직접 그리기</button>
+          </div>
+          <div id="aoiDrawHint" class="metric-label" style="text-align:left; color:#10b981; display:none;">
+            지도 위를 클릭해 꼭짓점을 3개 이상 찍은 뒤 <strong>[+ AOI 생성]</strong>을 누르세요. (<span id="aoiVertexCount">0</span>개 선택됨 · <a href="#" style="color:#f59e0b;" onclick="clearDrawnAoiPoints(); return false;">초기화</a>)
+          </div>
+          <div id="aoiListContainer" class="chip-list"></div>
+
+          <hr style="border:none; border-top:1px solid #334155; margin:4px 0;" />
+
+          <div class="metric-label" style="text-align:left;">
+            <strong>2. POI (Point of Interest, 거점 지점) 설정</strong> · 지도를 움직여 중앙 핀(📍)으로 도로 위 지점을 맞춘 뒤 이름을 붙여 POI로 등록하거나 선택해 배차합니다.
+          </div>
+          <div style="display:flex; gap:6px;">
+            <input type="text" id="poiNameInput" placeholder="예: 제1시험동 하차장 (POI-A)" />
+            <button class="btn-success btn-sm" id="addPoiBtn" style="white-space:nowrap;" onclick="registerCurrentPinAsPoi()">+ 현재 핀 POI 등록</button>
+          </div>
+          <div id="poiListContainer" class="chip-list">
+            <span class="metric-label">등록된 POI가 없습니다. 중앙 핀 위치를 POI로 등록해 보세요.</span>
+          </div>
+        </div>
+      </div>
 
       <!-- 배차 및 주행 제어 버튼 -->
       <div class="card">
@@ -312,6 +376,18 @@
     let mapMoving = false;
     let currentVehicle = null;
     let isPaused = false;
+    let aoiLayerGroup = null;
+    let poiLayerGroup = null;
+    let aoiRegions = [];
+    let poiStops = [];
+    let selectedPoiName = null;
+    const AOI_COLORS = ['#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+    let aoiRadiusM = 145;
+    let aoiPreviewLayer = null;
+    let aoiPreviewTimer = null;
+    let aoiDrawMode = false;
+    let drawnAoiPoints = [];
+    let drawnAoiLayerGroup = null;
 
     function addLog(msg) {
       const box = document.getElementById('logBox');
@@ -334,8 +410,13 @@
       }).addTo(map);
 
       map.on('movestart', () => { mapMoving = true; updateDispatchAvailability(); });
-      map.on('move', () => queueDestinationPreview());
+      map.on('move', () => { queueDestinationPreview(); if (aoiPreviewLayer && !aoiDrawMode) updateAoiRadiusPreview(); });
       map.on('moveend', () => { mapMoving = false; queueDestinationPreview(); });
+      map.on('click', (e) => {
+        if (!aoiDrawMode) return;
+        drawnAoiPoints.push({ lat: Number(e.latlng.lat.toFixed(7)), lng: Number(e.latlng.lng.toFixed(7)) });
+        renderDrawnAoiPreview();
+      });
     }
 
     function showConfirmedRoute() {
@@ -450,25 +531,336 @@
       updateVehicleMarkerStyles();
     }
 
-    // 2. 고정 거점 없이 도로망 표시
+    // 2. 도로망 및 AOI/POI 레이어 표시
     async function loadMapData() {
       try {
         const roadData = await (await fetch('/api/roads')).json();
         const roadLayer = L.layerGroup().addTo(map);
+        aoiLayerGroup = L.layerGroup().addTo(map);
+        poiLayerGroup = L.layerGroup().addTo(map);
         roadData.roads.forEach(road => {
           L.polyline(road.path.map(p => [p.lat, p.lng]), {
             color: '#548a3b', weight: 2, opacity: 0.65, interactive: false
           }).addTo(roadLayer);
         });
         L.control.layers(null, {
-          'C-Track 전체 도로망': roadLayer
+          'C-Track 전체 도로망': roadLayer,
+          'AOI (운행 구역 경계)': aoiLayerGroup,
+          'POI (등록된 거점 지점)': poiLayerGroup
         }, {
           position: 'bottomright'
         }).addTo(map);
+        await Promise.all([loadAois(), loadPois()]);
         queueDestinationPreview();
-        addLog('도로망 로드 완료 · 지도를 움직여 목적지를 지정하세요.');
+        addLog('도로망 및 AOI 구역 로드 완료 · 지도를 움직여 POI 목적지를 지정하세요.');
       } catch (e) {
         addLog('도로망 로드 실패: ' + e);
+      }
+    }
+
+    function updateAoiPoiBadge() {
+      const badge = document.getElementById('aoiCountBadge');
+      if (badge) badge.textContent = `AOI ${aoiRegions.length} · POI ${poiStops.length}`;
+    }
+
+    async function loadAois() {
+      try {
+        const res = await fetch('/api/aois', { cache: 'no-store' });
+        if (!res.ok) return;
+        aoiRegions = await res.json();
+        renderAois();
+      } catch (e) {
+        console.warn('AOI 로드 실패:', e);
+      }
+    }
+
+    function renderAois() {
+      if (aoiLayerGroup) aoiLayerGroup.clearLayers();
+      const container = document.getElementById('aoiListContainer');
+      container.replaceChildren();
+      aoiRegions.forEach(aoi => {
+        if (aoiLayerGroup && aoi.polygon?.length >= 3) {
+          const coords = aoi.polygon.map(p => [p.lat, p.lng]);
+          const poly = L.polygon(coords, {
+            color: aoi.color || '#38bdf8',
+            weight: 2,
+            dashArray: '6, 6',
+            fillColor: aoi.color || '#38bdf8',
+            fillOpacity: 0.08,
+            interactive: false
+          }).addTo(aoiLayerGroup);
+          poly.bindTooltip(`AOI: ${aoi.name} (${aoi.id})`, { sticky: true });
+        }
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.style.borderColor = aoi.color || '#38bdf8';
+        const label = document.createElement('span');
+        label.textContent = `🗺️ ${aoi.name}`;
+        label.onclick = () => focusAoi(aoi);
+        chip.appendChild(label);
+        if (aoi.id !== 'MOCK_AOI_01') {
+          const delBtn = document.createElement('button');
+          delBtn.className = 'chip-del';
+          delBtn.textContent = '×';
+          delBtn.title = 'AOI 삭제';
+          delBtn.onclick = (e) => { e.stopPropagation(); deleteAoi(aoi.id, aoi.name); };
+          chip.appendChild(delBtn);
+        }
+        container.appendChild(chip);
+      });
+      updateAoiPoiBadge();
+    }
+
+    function focusAoi(aoi) {
+      if (!aoi.polygon?.length) return;
+      const bounds = L.latLngBounds(aoi.polygon.map(p => [p.lat, p.lng]));
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
+      addLog(`AOI 구역 이동: ${aoi.name} (${aoi.id})`);
+    }
+
+    function onAoiRadiusChange(val) {
+      aoiRadiusM = Number(val);
+      document.getElementById('aoiRadiusLabel').textContent = `${aoiRadiusM}m`;
+      if (aoiDrawMode) return;
+      updateAoiRadiusPreview();
+      clearTimeout(aoiPreviewTimer);
+      aoiPreviewTimer = setTimeout(() => {
+        if (aoiPreviewLayer) {
+          map.removeLayer(aoiPreviewLayer);
+          aoiPreviewLayer = null;
+        }
+      }, 2500);
+    }
+
+    function updateAoiRadiusPreview() {
+      if (!map) return;
+      const c = map.getCenter();
+      const dLat = aoiRadiusM / 111320.0;
+      const dLng = aoiRadiusM / (111320.0 * Math.max(0.2, Math.cos(c.lat * Math.PI / 180)));
+      const coords = [
+        [c.lat + dLat, c.lng - dLng],
+        [c.lat + dLat, c.lng + dLng],
+        [c.lat - dLat, c.lng + dLng],
+        [c.lat - dLat, c.lng - dLng]
+      ];
+      const color = AOI_COLORS[aoiRegions.length % AOI_COLORS.length];
+      if (aoiPreviewLayer) map.removeLayer(aoiPreviewLayer);
+      aoiPreviewLayer = L.polygon(coords, {
+        color, weight: 2, dashArray: '4, 4', fillColor: color, fillOpacity: 0.14, interactive: false
+      }).addTo(map);
+    }
+
+    function toggleAoiDrawMode() {
+      aoiDrawMode = !aoiDrawMode;
+      const btn = document.getElementById('drawAoiModeBtn');
+      const hint = document.getElementById('aoiDrawHint');
+      if (aoiDrawMode) {
+        if (aoiPreviewLayer) { map.removeLayer(aoiPreviewLayer); aoiPreviewLayer = null; }
+        drawnAoiPoints = [];
+        btn.className = 'btn-warning btn-sm';
+        btn.textContent = '✖ 그리기 종료';
+        hint.style.display = 'block';
+        renderDrawnAoiPreview();
+        addLog('✏️ AOI 직접 그리기 모드: 지도 위를 클릭해 다각형 꼭짓점을 3개 이상 찍어주세요.');
+      } else {
+        btn.className = 'btn-secondary btn-sm';
+        btn.textContent = '✏️ 직접 그리기';
+        hint.style.display = 'none';
+        clearDrawnAoiPoints();
+      }
+    }
+
+    function clearDrawnAoiPoints() {
+      drawnAoiPoints = [];
+      if (drawnAoiLayerGroup) drawnAoiLayerGroup.clearLayers();
+      const countEl = document.getElementById('aoiVertexCount');
+      if (countEl) countEl.textContent = '0';
+    }
+
+    function renderDrawnAoiPreview() {
+      if (!drawnAoiLayerGroup) drawnAoiLayerGroup = L.layerGroup().addTo(map);
+      drawnAoiLayerGroup.clearLayers();
+      const countEl = document.getElementById('aoiVertexCount');
+      if (countEl) countEl.textContent = String(drawnAoiPoints.length);
+      const color = AOI_COLORS[aoiRegions.length % AOI_COLORS.length];
+      drawnAoiPoints.forEach((pt, idx) => {
+        L.circleMarker([pt.lat, pt.lng], {
+          radius: 6, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1
+        }).addTo(drawnAoiLayerGroup).bindTooltip(`꼭짓점 ${idx + 1}`, { direction: 'top' });
+      });
+      if (drawnAoiPoints.length >= 2) {
+        const latlngs = drawnAoiPoints.map(p => [p.lat, p.lng]);
+        if (drawnAoiPoints.length >= 3) {
+          L.polygon(latlngs, {
+            color, weight: 2, dashArray: '4, 4', fillColor: color, fillOpacity: 0.16, interactive: false
+          }).addTo(drawnAoiLayerGroup);
+        } else {
+          L.polyline(latlngs, { color, weight: 2, dashArray: '4, 4', interactive: false }).addTo(drawnAoiLayerGroup);
+        }
+      }
+    }
+
+    async function createAoiFromMapCenter() {
+      const input = document.getElementById('aoiNameInput');
+      const name = (input.value || '').trim() || `C-Track 구역 #${aoiRegions.length + 1}`;
+      const center = map.getCenter();
+      const color = AOI_COLORS[aoiRegions.length % AOI_COLORS.length];
+      if (aoiDrawMode && drawnAoiPoints.length > 0 && drawnAoiPoints.length < 3) {
+        alert('직접 그리기 모드에서는 지도 위에 꼭짓점을 3개 이상 클릭해 주세요.');
+        return;
+      }
+      const payload = (aoiDrawMode && drawnAoiPoints.length >= 3)
+        ? { name, color, polygon: drawnAoiPoints }
+        : { name, color, center_lat: center.lat, center_lng: center.lng, radius_m: aoiRadiusM };
+      try {
+        const res = await fetch('/api/aois', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'AOI 생성 실패');
+        if (aoiPreviewLayer) { map.removeLayer(aoiPreviewLayer); aoiPreviewLayer = null; }
+        if (aoiDrawMode) toggleAoiDrawMode();
+        addLog(`신규 AOI 생성 완료: ${data.name} (${data.id})`);
+        input.value = `C-Track 시험구역 #${aoiRegions.length + 1}`;
+        await loadAois();
+      } catch (err) {
+        alert('AOI 생성 실패: ' + err.message);
+      }
+    }
+
+    async function deleteAoi(aoiId, aoiName) {
+      try {
+        const res = await fetch(`/api/aois/${encodeURIComponent(aoiId)}`, { method: 'DELETE' });
+        if (res.ok) {
+          addLog(`AOI 삭제 완료: ${aoiName} (${aoiId})`);
+          await loadAois();
+        }
+      } catch (err) {
+        console.warn('AOI 삭제 실패:', err);
+      }
+    }
+
+    async function loadPois() {
+      try {
+        const res = await fetch('/api/stops', { cache: 'no-store' });
+        if (!res.ok) return;
+        poiStops = await res.json();
+        renderPois();
+      } catch (e) {
+        console.warn('POI 로드 실패:', e);
+      }
+    }
+
+    function renderPois() {
+      if (poiLayerGroup) poiLayerGroup.clearLayers();
+      const container = document.getElementById('poiListContainer');
+      container.replaceChildren();
+      if (!poiStops.length) {
+        const empty = document.createElement('span');
+        empty.className = 'metric-label';
+        empty.textContent = '등록된 POI가 없습니다. 중앙 핀 위치를 POI로 등록해 보세요.';
+        container.appendChild(empty);
+        updateAoiPoiBadge();
+        return;
+      }
+      poiStops.forEach((poi, idx) => {
+        if (poiLayerGroup) {
+          const marker = L.marker([poi.lat, poi.lng], {
+            icon: L.divIcon({
+              className: 'poi-marker',
+              html: `${idx + 1}`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            })
+          }).addTo(poiLayerGroup);
+          marker.bindTooltip(`📍 POI: ${poi.name} (${poi.id})`, { direction: 'top', offset: [0, -10] });
+          marker.on('click', () => selectPoiAsDestination(poi));
+        }
+        const chip = document.createElement('div');
+        chip.className = 'chip' + (selectedPoiName === poi.name ? ' active' : '');
+        const label = document.createElement('span');
+        label.textContent = `📍 ${poi.name}`;
+        label.onclick = () => selectPoiAsDestination(poi);
+        const delBtn = document.createElement('button');
+        delBtn.className = 'chip-del';
+        delBtn.textContent = '×';
+        delBtn.title = 'POI 삭제';
+        delBtn.onclick = (e) => { e.stopPropagation(); deletePoi(poi.id, poi.name); };
+        chip.append(label, delBtn);
+        container.appendChild(chip);
+      });
+      updateAoiPoiBadge();
+    }
+
+    async function registerCurrentPinAsPoi() {
+      const input = document.getElementById('poiNameInput');
+      const name = (input.value || '').trim() || `C-Track POI 거점 #${poiStops.length + 1}`;
+      const targetCoord = destinationPlan?.target || map.getCenter();
+      try {
+        const res = await fetch('/api/stops', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            lat: targetCoord.lat,
+            lng: targetCoord.lng
+          })
+        });
+        const created = await res.json();
+        if (!res.ok) throw new Error(created.detail || 'POI 등록 실패');
+        selectedPoiName = created.name;
+        input.value = '';
+        addLog(`POI 거점 등록 완료: ${created.name} (${created.lat.toFixed(6)}, ${created.lng.toFixed(6)})`);
+        await loadPois();
+        if (destinationPlan) {
+          document.getElementById('destinationInfo').textContent =
+            `[POI: ${created.name}] 위도 ${created.lat.toFixed(6)} · 경도 ${created.lng.toFixed(6)} · 이동 ${destinationPlan.distance_m.toFixed(0)}m`;
+        }
+      } catch (err) {
+        alert('POI 등록 실패: ' + err.message);
+      }
+    }
+
+    function selectPoiAsDestination(poi) {
+      selectedPoiName = poi.name;
+      renderPois();
+      map.setView([poi.lat, poi.lng], Math.max(map.getZoom(), 16));
+      addLog(`POI 목적지 선택: ${poi.name} (${poi.lat.toFixed(6)}, ${poi.lng.toFixed(6)})`);
+      queueDestinationPreview(true);
+    }
+
+    async function deletePoi(stopId, stopName) {
+      try {
+        const res = await fetch(`/api/stops/${encodeURIComponent(stopId)}`, { method: 'DELETE' });
+        if (res.ok) {
+          if (selectedPoiName === stopName) selectedPoiName = null;
+          addLog(`POI 삭제 완료: ${stopName} (${stopId})`);
+          await loadPois();
+        }
+      } catch (err) {
+        console.warn('POI 삭제 실패:', err);
+      }
+    }
+
+    async function resetAllState() {
+      try {
+        const res = await fetch('/api/vehicles/reset', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '초기화 실패');
+        confirmedRoutes.clear();
+        confirmedRouteTasks.clear();
+        selectedPoiName = null;
+        showConfirmedRoute();
+        hideDestinationSelection();
+        await Promise.all([loadAois(), loadPois()]);
+        const vehiclesRes = await fetch('/api/vehicles');
+        if (vehiclesRes.ok) updateFleet(await vehiclesRes.json());
+        queueDestinationPreview(true);
+        addLog('🔄 차량 위치·배터리·작업 및 AOI/POI가 초기 상태로 리셋되었습니다.');
+      } catch (err) {
+        alert('초기화 실패: ' + err.message);
       }
     }
 
@@ -673,8 +1065,18 @@
         destinationPath = L.polyline(data.path.map(p => [p.lat, p.lng]), {
           color: '#0ea5e9', weight: 5, opacity: 0.95, interactive: false
         }).addTo(map);
+        let matchedPoi = null;
+        for (const p of poiStops) {
+          if (Math.abs(p.lat - data.target.lat) < 0.00012 && Math.abs(p.lng - data.target.lng) < 0.00012) {
+            matchedPoi = p;
+            break;
+          }
+        }
+        selectedPoiName = matchedPoi ? matchedPoi.name : null;
+        renderPois();
+        const poiPrefix = selectedPoiName ? `[POI: ${selectedPoiName}] ` : '';
         document.getElementById('destinationInfo').textContent =
-          `위도 ${data.target.lat.toFixed(6)} · 경도 ${data.target.lng.toFixed(6)} · 이동 ${data.distance_m.toFixed(0)}m · 도로 보정 ${data.snap_distance_m.toFixed(1)}m` +
+          `${poiPrefix}위도 ${data.target.lat.toFixed(6)} · 경도 ${data.target.lng.toFixed(6)} · 이동 ${data.distance_m.toFixed(0)}m · 도로 보정 ${data.snap_distance_m.toFixed(1)}m` +
           (currentVehicle?.task?.paused ? ' · 새 호출은 기존 작업 비상 정지 후 가능합니다.' : '');
         updateDispatchAvailability();
       } catch (error) {
@@ -696,6 +1098,7 @@
         const res = await fetch('/api/dispatch', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({vehicle_id: selectedVehicleId, kind: 'point',
+            target_name: selectedPoiName,
             target_lat: destinationPlan.target.lat, target_lng: destinationPlan.target.lng})
         });
         const data = await res.json();
