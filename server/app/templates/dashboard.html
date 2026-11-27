@@ -845,6 +845,9 @@
     }
 
     async function resetAllState() {
+      if (!confirm('차량 위치·배터리·작업 이력과 추가한 AOI/POI 설정을 모두 초기 상태로 리셋하시겠습니까?')) {
+        return;
+      }
       try {
         const res = await fetch('/api/vehicles/reset', { method: 'POST' });
         const data = await res.json();
