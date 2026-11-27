@@ -10,13 +10,21 @@ router = APIRouter(prefix="/vehicles", tags=["Vehicles (차량 조회 및 제어
 
 
 @router.get("", response_model=List[VehicleState], summary="전체 가상 차량 목록 및 실시간 상태 조회")
-async def get_vehicles():
+async def get_vehicles(
+    user_id: str | None = Query(None, description="담당자 계정 ID 필터. 전달 시 해당 담당자에게 할당된 차량만 반환"),
+):
     """전체 차량(정차·전원 OFF·오프라인 포함)의 상태를 조회합니다.
 
     remaining_range_km은 배터리 기반 예상 거리이며 목적지까지의 거리가 아닙니다.
     sensors_available=false이면 센서 수치는 표시하지 않습니다.
     """
-    return simulator.get_all_vehicles()
+    vehicles = simulator.get_all_vehicles()
+    if user_id and user_id.strip():
+        mgr = db_logger.get_manager(user_id.strip())
+        if mgr is not None:
+            allowed = set(mgr["assigned_vehicle_ids"])
+            vehicles = [v for v in vehicles if v.id in allowed]
+    return vehicles
 
 
 @router.get("/history", response_model=UnifiedHistoryResponse, summary="차량 최신 상태·배차·이벤트 통합 조회")
