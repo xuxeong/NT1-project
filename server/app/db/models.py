@@ -27,6 +27,7 @@ class VehicleRecord(Base):
     battery: Mapped[float] = mapped_column(Float, default=100.0)
     fault_status: Mapped[int] = mapped_column(Integer, default=0, comment="0: 정상, 1: 고장/이상")
     fault_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    fault_reported_at_ms: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="고장 신고 시각(ms)")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 

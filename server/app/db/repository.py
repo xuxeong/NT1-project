@@ -41,6 +41,7 @@ class DatabaseLogger:
                         battery=v.battery,
                         fault_status=v.fault_status,
                         fault_reason=v.fault_reason,
+                        fault_reported_at_ms=v.fault_reported_at_ms,
                     )
                     db.add(record)
                 else:
@@ -56,6 +57,7 @@ class DatabaseLogger:
                     record.battery = v.battery
                     record.fault_status = v.fault_status
                     record.fault_reason = v.fault_reason
+                    record.fault_reported_at_ms = v.fault_reported_at_ms
                     record.updated_at = utc_now()
                 db.commit()
         except Exception as exc:
@@ -229,6 +231,7 @@ class DatabaseLogger:
                     v.battery = float(record.battery)
                     v.fault_status = int(record.fault_status)
                     v.fault_reason = record.fault_reason
+                    v.fault_reported_at_ms = getattr(record, "fault_reported_at_ms", None)
                     v.location_name = f"{v.lat:.6f}, {v.lng:.6f}"
 
                     last_mission = (
@@ -272,8 +275,12 @@ class DatabaseLogger:
                             target_lat=last_mission.target_lat,
                             target_lng=last_mission.target_lng,
                             phase=phase,
+                            total_distance_m=round(total_dist, 1),
                             remaining_distance_m=rem_dist,
                             progress_percent=progress,
+                            started_at_ms=int(last_mission.created_at.timestamp() * 1000)
+                            if last_mission.created_at
+                            else (int(utc_now().timestamp() * 1000)),
                             paused=paused,
                         )
                         v.task = restored_task
@@ -494,9 +501,11 @@ def attach_simulator_hooks(sim_cls) -> None:
                 db_logger.update_mission_status(
                     v, prev_task_id, 2, "PAUSE", "차량 운행 불가 상태로 자동 일시정지"
                 )
-        # 제어 이벤트가 없는 주행 중에도 최신 좌표·배터리 스냅샷을 갱신합니다.
-        for v in self.vehicles.values():
-            db_logger.sync_vehicle(v)
+        # 주행 틱으로 실제 이동했거나 상태가 변한 활성 차량만 최신 스냅샷을 DB에 갱신합니다 (정차 차량의 매초 불필요한 DB 쓰기 방지).
+        for v_id in active_tasks:
+            v = self.vehicles.get(v_id)
+            if v is not None:
+                db_logger.sync_vehicle(v)
 
     sim_cls.start_dispatch_point = start_dispatch_point
     sim_cls.start_dispatch_coordinate = start_dispatch_coordinate

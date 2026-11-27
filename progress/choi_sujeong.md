@@ -114,3 +114,22 @@
 
   4. **자동화 테스트 검증 (`tests/test_db_persistence.py`)**:
      * 서버 재시작 모사 시 주행 중(`1`) 작업 이어받아 목적지 도착 검증, 고장 일시정지(`2`) 작업 복원 검증, 완료(`3`) 상태 보존 검증, 상태 리셋(`/api/vehicles/reset`) 및 OSM 타일 중계(`/tiles/{z}/{x}/{y}.png`) 검증 테스트 추가 (전체 **45개 pytest 100% 통과**).
+
+---
+
+## [2026-11-27] 앱 작업 정보·고장 카드 연동 대비 주행 진행률 동적 갱신 및 고장 신고 시각 필드 보완
+
+* **담당 역할**: 앱 UI(`TaskInfoSheet.tsx`, `FaultCard.tsx`) 데이터 요구사항 대조 및 시뮬레이터·DB 모델 필드 보완
+* **주요 작업 내용**:
+
+  1. **주행 중 실시간 작업 진행률(`progress_percent`) 동적 연산 및 작업 메타데이터 보강 (`app/models/vehicle.py`, `app/simulator/vehicle_sim.py`)**:
+     * 모바일 앱 작업 정보 시트(`TaskInfoSheet.tsx`)의 진행률·전체 경로 거리·작업 시작 시각 표시 요구사항에 맞춰 `VehicleTask`에 `total_distance_m` 및 `started_at_ms`(밀리초 타임스탬프) 필드 추가.
+     * `tick_one_second()` 루프에서 매초 `remaining_distance_m` 감소에 비례하여 `progress_percent`(`0.0% ~ 100.0%`)가 실시간으로 갱신되도록 보완.
+
+  2. **고장 신고 시각(`fault_reported_at_ms`) 저장 및 DB 복원 연동 (`app/models/vehicle.py`, `app/db/models.py`, `app/db/repository.py`)**:
+     * 모바일 앱 고장 신고 카드(`FaultCard.tsx`)의 신고 시각(`reportedAt`) 표시와 연동되도록 `VehicleState` 및 DB `vehicles` 테이블에 `fault_reported_at_ms` 필드 추가.
+     * 고장 신고 접수(`fault_status = 1`) 시 밀리초 시각을 기록하고, 고장 해제(`0`) 시 초기화하며, 서버 재시작 이어받기(`restore_or_seed_simulator`) 시에도 `total_distance_m`, `started_at_ms`, `fault_reported_at_ms`가 함께 복원되도록 처리.
+
+  3. **매초 DB 스냅샷 쓰기(I/O) 최적화 및 타일 프록시 커넥션 풀·WebSocket 직렬화 개선 (`app/db/repository.py`, `app/main.py`)**:
+     * `tick_one_second()` 후크에서 정차 중인 모든 차량을 매초 DB에 중복 `UPDATE`하던 비효율을 개선하여, 실제 주행 중인 활성 차량(`active_tasks`)만 매초 스냅샷을 갱신하도록 최적화.
+     * OSM 타일 중계 API(`/tiles/{z}/{x}/{y}.png`)에서 타일 요청마다 새 `httpx.AsyncClient`를 생성·종료하던 방식을 공유 커넥션 풀 재사용 구조로 개선하고, WebSocket 텔레메트리 송신 시 `model_dump(mode="json")`을 적용하여 직렬화 안정성 확보 (전체 **45개 pytest 100% 통과**).
