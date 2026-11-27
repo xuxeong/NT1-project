@@ -94,6 +94,7 @@ class DatabaseLogger:
                     VehicleEventRecord(
                         vehicle_id=v.id,
                         event_type="DISPATCH_START",
+                        task_id=task_id,
                         lat=v.lat,
                         lng=v.lng,
                         battery=v.battery,
@@ -129,6 +130,7 @@ class DatabaseLogger:
                     VehicleEventRecord(
                         vehicle_id=v.id,
                         event_type=event_type,
+                        task_id=task_id,
                         lat=v.lat,
                         lng=v.lng,
                         battery=v.battery,
@@ -140,7 +142,7 @@ class DatabaseLogger:
         except Exception as exc:
             print(f"[DB Warning] update_mission_status 실패: {exc}")
 
-    def log_event(self, v: VehicleState, event_type: str, detail: str) -> None:
+    def log_event(self, v: VehicleState, event_type: str, detail: str, task_id: str | None = None) -> None:
         """전원 제어, 고장 신고/해제 등 일반 차량 이벤트를 기록합니다."""
         self.ensure_initialized()
         try:
@@ -149,6 +151,7 @@ class DatabaseLogger:
                     VehicleEventRecord(
                         vehicle_id=v.id,
                         event_type=event_type,
+                        task_id=task_id,
                         lat=v.lat,
                         lng=v.lng,
                         battery=v.battery,
@@ -197,6 +200,7 @@ class DatabaseLogger:
                     "id": r.id,
                     "vehicle_id": r.vehicle_id,
                     "event_type": r.event_type,
+                    "task_id": r.task_id,
                     "lat": r.lat,
                     "lng": r.lng,
                     "battery": r.battery,
@@ -377,6 +381,71 @@ class DatabaseLogger:
         except Exception as exc:
             print(f"[DB Warning] reset_all_state 실패: {exc}")
 
+    def get_unified_history(self, vehicle_id: str | None = None, limit: int = 50) -> dict:
+        """DB의 차량 최신 상태 아래에 차량별 배차와 이벤트를 묶습니다."""
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            vehicle_ids = db.query(VehicleRecord.id.label('vehicle_id')).union(
+                db.query(MissionRecord.vehicle_id), db.query(VehicleEventRecord.vehicle_id),
+            ).subquery()
+            query = db.query(vehicle_ids.c.vehicle_id)
+            if vehicle_id:
+                query = query.filter(vehicle_ids.c.vehicle_id == vehicle_id)
+            result = []
+            for (vin,) in query.order_by(vehicle_ids.c.vehicle_id).all():
+                snapshot = db.get(VehicleRecord, vin)
+                missions = (db.query(MissionRecord).filter_by(vehicle_id=vin)
+                            .order_by(MissionRecord.id.desc()).limit(limit).all())
+                task_ids = [mission.task_id for mission in missions]
+                events = (db.query(VehicleEventRecord).filter(
+                    VehicleEventRecord.vehicle_id == vin,
+                    VehicleEventRecord.task_id.in_(task_ids),
+                ).order_by(VehicleEventRecord.created_at, VehicleEventRecord.id).all()) if task_ids else []
+                grouped = {}
+                for event in events:
+                    grouped.setdefault(event.task_id, []).append(self._event_data(event))
+                result.append({
+                    'vehicle_id': vin,
+                    'latest_state': self._vehicle_data(snapshot) if snapshot else None,
+                    'missions': [
+                        {
+                            'id': m.id, 'task_id': m.task_id, 'vehicle_id': m.vehicle_id,
+                            'kind': m.kind, 'start': {'lat': m.start_lat, 'lng': m.start_lng},
+                            'target': {'lat': m.target_lat, 'lng': m.target_lng, 'name': m.target_name},
+                            'total_distance_m': m.total_distance_m, 'mission_status': m.mission_status,
+                            'created_at': m.created_at.isoformat() if m.created_at else None,
+                            'updated_at': m.updated_at.isoformat() if m.updated_at else None,
+                            'events': grouped.get(m.task_id, []),
+                        } for m in missions
+                    ],
+                    'unassigned_events': [self._event_data(event) for event in (
+                        db.query(VehicleEventRecord).filter(
+                            VehicleEventRecord.vehicle_id == vin,
+                            VehicleEventRecord.task_id.is_(None),
+                        ).order_by(VehicleEventRecord.id.desc()).limit(limit).all()
+                    )],
+                })
+            return {'vehicles': result}
+
+    @staticmethod
+    def _vehicle_data(vehicle: VehicleRecord) -> dict:
+        return {
+            key: (value.isoformat() if key == 'updated_at' and value else value)
+            for key in ('id', 'name', 'aoi', 'power', 'online', 'lat', 'lng', 'heading',
+                        'speed_kmh', 'gear', 'battery', 'fault_status', 'fault_reason',
+                        'fault_reported_at_ms', 'updated_at')
+            for value in [getattr(vehicle, key)]
+        }
+
+    @staticmethod
+    def _event_data(event: VehicleEventRecord) -> dict:
+        return {
+            "id": event.id, "vehicle_id": event.vehicle_id, "task_id": event.task_id,
+            "event_type": event.event_type, "lat": event.lat, "lng": event.lng,
+            "battery": event.battery, "detail": event.detail,
+            "created_at": event.created_at.isoformat() if event.created_at else None,
+        }
+
 
 db_logger = DatabaseLogger()
 
@@ -457,16 +526,19 @@ def attach_simulator_hooks(sim_cls) -> None:
         return ok
 
     def control(self, vehicle_id: str, power=None, *args, **kwargs) -> bool:
+        v = self.vehicles.get(vehicle_id)
+        task_id = v.task.task_id if v and v.task and v.task.phase != TaskPhase.ARRIVED else None
         ok = orig_control(self, vehicle_id, power, *args, **kwargs)
         if ok and power is not None:
             v = self.vehicles.get(vehicle_id)
             if v:
-                db_logger.log_event(v, "POWER_CHANGE", f"전원 상태 변경: {'ON' if power else 'OFF'}")
+                db_logger.log_event(v, "POWER_CHANGE", f"전원 상태 변경: {'ON' if power else 'OFF'}", task_id=task_id)
         return ok
 
     def report_fault(self, vehicle_id: str, fault_status: int, reason=None) -> bool:
         v = self.vehicles.get(vehicle_id)
         was_driving = bool(v and v.task and v.task.phase == TaskPhase.DRIVING)
+        task_id = v.task.task_id if v and v.task and v.task.phase != TaskPhase.ARRIVED else None
         ok = orig_report_fault(self, vehicle_id, fault_status, reason)
         if ok:
             v = self.vehicles.get(vehicle_id)
@@ -481,7 +553,7 @@ def attach_simulator_hooks(sim_cls) -> None:
                     if v.fault_status == 1
                     else "고장 상태 해제 (정상 복귀)"
                 )
-                db_logger.log_event(v, event_type, detail)
+                db_logger.log_event(v, event_type, detail, task_id=task_id)
         return ok
 
     def tick_one_second(self):

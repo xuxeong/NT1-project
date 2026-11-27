@@ -1,6 +1,6 @@
 """SQLAlchemy ORM Models for Vehicle States, Dispatch Missions, and Event Logs."""
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -27,7 +27,7 @@ class VehicleRecord(Base):
     battery: Mapped[float] = mapped_column(Float, default=100.0)
     fault_status: Mapped[int] = mapped_column(Integer, default=0, comment="0: 정상, 1: 고장/이상")
     fault_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    fault_reported_at_ms: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="고장 신고 시각(ms)")
+    fault_reported_at_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True, comment="고장 신고 시각(ms)")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 
@@ -58,6 +58,9 @@ class VehicleEventRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     vehicle_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    task_id: Mapped[str | None] = mapped_column(
+        String(64), index=True, nullable=True, comment="연결된 배차 작업 ID. 작업 없는 이벤트/기존 이력은 NULL"
+    )
     event_type: Mapped[str] = mapped_column(
         String(40), index=True, nullable=False,
         comment="DISPATCH_START, PAUSE, RESUME, ARRIVED, CANCEL, POWER_CHANGE, FAULT_REPORT, FAULT_CLEAR"

@@ -2,6 +2,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Query
 from app.models.vehicle import VehicleState
 from app.models.dispatch import ControlRequest, CommandResponse
+from app.models.history import UnifiedHistoryResponse
 from app.simulator.vehicle_sim import simulator
 from app.db.repository import db_logger
 
@@ -16,6 +17,22 @@ async def get_vehicles():
     sensors_available=false이면 센서 수치는 표시하지 않습니다.
     """
     return simulator.get_all_vehicles()
+
+
+@router.get("/history", response_model=UnifiedHistoryResponse, summary="차량 최신 상태·배차·이벤트 통합 조회")
+async def get_unified_history(
+    vehicle_id: str | None = Query(None, description="차량 ID 필터. 생략하면 전체 차량"),
+    limit: int = Query(50, ge=1, le=200, description="차량별 최신 배차 수 및 작업 없는 이벤트 수에 각각 적용"),
+):
+    """차량별 DB 최신 상태와 배차 목록, 각 배차의 전체 이벤트를 함께 반환합니다.
+
+    latest_state는 실시간 시뮬레이터 값이 아닌 마지막 DB 저장값입니다.
+    최신 상태가 없는 과거 차량도 포함하며 latest_state는 null입니다.
+    기존 작업 ID 없는 이벤트는 추정 연결하지 않고 unassigned_events에 반환합니다.
+    현재 메모리에 없는 차량도 저장된 이력이 있으면 조회하며 이력이 없으면 빈 배열입니다.
+    기존 개별 이력 API도 유지합니다. 인증은 기존 관제 API와 동일하게 적용하지 않습니다.
+    """
+    return {"ok": True, **db_logger.get_unified_history(vehicle_id=vehicle_id, limit=limit)}
 
 
 @router.get("/history/missions", summary="전체 또는 차량별 배차 작업(Mission) DB 이력 조회")
