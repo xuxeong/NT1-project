@@ -90,6 +90,7 @@ class VehicleSimulator:
             target_stop_id=target.id,
             target_stop_name=target.name,
             phase=TaskPhase.DRIVING,
+            total_distance_m=round(dist, 1),
             remaining_distance_m=dist,
             progress_percent=0.0,
             paused=False,
@@ -129,7 +130,10 @@ class VehicleSimulator:
             task_id=f'pin_{time.time_ns()}', kind='point',
             target_stop_name='지도에서 선택한 목적지',
             target_lat=plan['target']['lat'], target_lng=plan['target']['lng'],
-            remaining_distance_m=plan['distance_m'], phase=TaskPhase.DRIVING,
+            total_distance_m=plan['distance_m'],
+            remaining_distance_m=plan['distance_m'],
+            progress_percent=0.0,
+            phase=TaskPhase.DRIVING,
         )
         self.coordinate_missions[vehicle_id] = {
             'task': vehicle.task,
@@ -243,6 +247,7 @@ class VehicleSimulator:
             return False
         vehicle.fault_status = 1 if fault_status else 0
         vehicle.fault_reason = reason if vehicle.fault_status == 1 else None
+        vehicle.fault_reported_at_ms = (time.time_ns() // 1_000_000) if vehicle.fault_status == 1 else None
         if vehicle.fault_status == 1 and vehicle.task and vehicle.task.phase == TaskPhase.DRIVING:
             # 신고 정지는 사용자 제어와 달리 오프라인/전원 상태와 무관하게 즉시 적용합니다.
             vehicle.task.paused = True
@@ -323,7 +328,13 @@ class VehicleSimulator:
                 v.latency_ms = max(20, min(120, v.latency_ms + random.randint(-5, 5)))
             if v.task and v.task.phase == TaskPhase.DRIVING:
                 v.speed_kmh, v.gear = 15.0, Gear.D
-                v.task.remaining_distance_m = path_length(self.planned_path(v_id))
+                rem = path_length(self.planned_path(v_id))
+                v.task.remaining_distance_m = rem
+                total = v.task.total_distance_m
+                if total > 0:
+                    v.task.progress_percent = max(0.0, min(100.0, round((1.0 - rem / total) * 100.0, 1)))
+                else:
+                    v.task.progress_percent = 100.0
 
     async def run_simulation_loop(self):
         """백그라운드 비동기 루프 (1초 주기)"""

@@ -1,4 +1,5 @@
 from enum import Enum
+import time
 from typing import Optional
 from pydantic import BaseModel, Field, PrivateAttr, computed_field
 
@@ -59,8 +60,13 @@ class VehicleTask(BaseModel):
     target_lat: Optional[float] = None
     target_lng: Optional[float] = None
     phase: TaskPhase = TaskPhase.IDLE
+    total_distance_m: float = Field(0.0, ge=0.0, description="배차 확정 당시 전체 계획 경로 거리(m)")
     remaining_distance_m: float = 0.0
     progress_percent: float = 0.0
+    started_at_ms: int = Field(
+        default_factory=lambda: time.time_ns() // 1_000_000,
+        description="작업 시작 시각 (밀리초 단위 Unix 타임스탬프)",
+    )
     paused: bool = False
     loops_done: int = 0
     loops_total: Optional[int] = None
@@ -125,6 +131,7 @@ class VehicleState(BaseModel):
     # 고장/이상 상태 (고장 신고 또는 센서 이상 시)
     fault_status: int = Field(0, ge=0, le=1, description="수동 고장 신고 상태 (0: 해제, 1: 접수). 센서 포함 종합 상태와 구분")
     fault_reason: Optional[str] = Field(None, description="고장 신고 또는 이상 발생 사유")
+    fault_reported_at_ms: Optional[int] = Field(None, description="고장 신고 접수 시각 (밀리초 단위 Unix 타임스탬프)")
     
     sensors: VehicleSensors = Field(default_factory=VehicleSensors)
     specifications: VehicleSpecifications = Field(default_factory=VehicleSpecifications)
