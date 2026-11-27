@@ -12,6 +12,7 @@ import { VehicleCard } from '@/components/VehicleCard';
 import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { fetchMockVehicles } from '@/mocks/mockServer';
+import { useAuth } from '@/state/auth';
 import { isFilterActive, matchesFilter, useVehicleFilter } from '@/state/vehicleFilter';
 import { colors, radius, typography } from '@/theme';
 import type { Vehicle } from '@/types/vehicle';
@@ -33,7 +34,10 @@ export default function VehicleListScreen() {
   const { applied: filter } = useVehicleFilter();
   const filterOn = isFilterActive(filter);
 
-  const { data, loading, error, reload } = useAsync(fetchMockVehicles, []);
+  // 로그인한 담당자의 담당 차량만 보여 줍니다 (서버: GET /api/vehicles?user_id=...)
+  const { manager } = useAuth();
+  const assignedIds = manager?.assignedVehicleIds;
+  const { data, loading, error, reload } = useAsync(() => fetchMockVehicles(assignedIds), [assignedIds]);
   const vehicles: Vehicle[] = useMemo(() => data ?? [], [data]);
   // 처음 불러오는 중이거나 실패했을 때 (이미 받은 목록이 있으면 그대로 보여 줌)
   const showLoading = loading && !data;

@@ -14,6 +14,7 @@ export const colors = {
   sheet: '#FFFFFF', // v2/bg/sheet
   subtle: '#F4F5F7', // v2/bg/subtle
   hairline: '#E3E6EB', // v2/border/hairline
+  borderStrong: '#C5CAD3', // v2/border/strong (체크박스 테두리)
   textSecondary: '#5B6270', // v2/text/secondary
   textTertiary: '#9097A3', // v2/text/tertiary
   onInk: '#FFFFFF', // v2/text/on-ink
@@ -46,6 +47,7 @@ export const fonts = {
  */
 export const typography = {
   id28: { fontFamily: fonts.numSemiBold, fontSize: 28, lineHeight: 34, letterSpacing: -0.56 },
+  heading26: { fontFamily: fonts.krBold, fontSize: 26, lineHeight: 34, letterSpacing: -0.26 },
   value18: { fontFamily: fonts.numSemiBold, fontSize: 18, lineHeight: 24, letterSpacing: -0.18 },
   title17: { fontFamily: fonts.krBold, fontSize: 17, lineHeight: 24, letterSpacing: -0.17 },
   button16: { fontFamily: fonts.krBold, fontSize: 16, lineHeight: 24 },
