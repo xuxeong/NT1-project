@@ -3,9 +3,46 @@ from typing import List, Optional
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import SessionLocal, init_db
-from app.db.models import MissionRecord, VehicleEventRecord, VehicleRecord, utc_now
+from app.db.models import (
+    ManagerAccountRecord,
+    ManagerNotificationRecord,
+    MissionRecord,
+    VehicleEventRecord,
+    VehicleRecord,
+    utc_now,
+)
 from app.models.vehicle import Gear, TaskPhase, TaskStatus, VehicleState, VehicleTask
 from app.simulator.road_network import path_length, road_path
+
+DEFAULT_MANAGER_ACCOUNTS = [
+    {
+        "user_id": "manager1",
+        "password": "1234",
+        "name": "김관제 (1호차 담당)",
+        "phone": "010-1111-2222",
+        "role": "manager",
+        "assigned_aoi": "C-Track 오창",
+        "assigned_vehicles_csv": "X3S1181",
+    },
+    {
+        "user_id": "manager2",
+        "password": "1234",
+        "name": "이순찰 (2호차 담당)",
+        "phone": "010-3333-4444",
+        "role": "manager",
+        "assigned_aoi": "C-Track 오창",
+        "assigned_vehicles_csv": "X3S1182",
+    },
+    {
+        "user_id": "admin",
+        "password": "1234",
+        "name": "최총괄 (전체 관제)",
+        "phone": "010-9999-0000",
+        "role": "admin",
+        "assigned_aoi": "C-Track 오창",
+        "assigned_vehicles_csv": "X3S1181,X3S1182",
+    },
+]
 
 
 class DatabaseLogger:
@@ -19,6 +56,153 @@ class DatabaseLogger:
         if not self._initialized:
             init_db(target_engine=self.session_factory.kw.get("bind"))
             self._initialized = True
+        self.ensure_default_managers()
+
+    def ensure_default_managers(self) -> None:
+        """회원가입 없이 로그인할 수 있도록 DB에 가상 담당자 계정 초기 데이터를 적재합니다."""
+        try:
+            with self.session_factory() as db:
+                if db.query(ManagerAccountRecord).count() > 0:
+                    return
+                for item in DEFAULT_MANAGER_ACCOUNTS:
+                    db.add(ManagerAccountRecord(**item))
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] ensure_default_managers 실패: {exc}")
+
+    @staticmethod
+    def _manager_to_dict(record: ManagerAccountRecord) -> dict:
+        vehicles = [v.strip() for v in (record.assigned_vehicles_csv or "").split(",") if v.strip()]
+        return {
+            "user_id": record.user_id,
+            "name": record.name,
+            "phone": record.phone,
+            "role": record.role,
+            "assigned_aoi": record.assigned_aoi,
+            "assigned_vehicle_ids": vehicles,
+            "updated_at": record.updated_at.isoformat() if record.updated_at else None,
+        }
+
+    def authenticate_manager(self, user_id: str, password: str) -> Optional[dict]:
+        """DB에 저장된 가상 담당자 계정으로 로그인을 검증합니다."""
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            record = db.query(ManagerAccountRecord).filter(ManagerAccountRecord.user_id == user_id).first()
+            if record is None or record.password != password:
+                return None
+            return self._manager_to_dict(record)
+
+    def get_manager(self, user_id: str) -> Optional[dict]:
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            record = db.query(ManagerAccountRecord).filter(ManagerAccountRecord.user_id == user_id).first()
+            return self._manager_to_dict(record) if record else None
+
+    def list_managers(self) -> List[dict]:
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            rows = db.query(ManagerAccountRecord).order_by(ManagerAccountRecord.user_id).all()
+            return [self._manager_to_dict(r) for r in rows]
+
+    def update_manager_contact(
+        self,
+        user_id: str,
+        name: Optional[str] = None,
+        phone: Optional[str] = None,
+        assigned_aoi: Optional[str] = None,
+        assigned_vehicle_ids: Optional[List[str]] = None,
+    ) -> Optional[dict]:
+        """담당자 연락처(전화번호·이름) 및 할당 차량·AOI 구역을 수정합니다."""
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            record = db.query(ManagerAccountRecord).filter(ManagerAccountRecord.user_id == user_id).first()
+            if record is None:
+                return None
+            if name is not None and name.strip():
+                record.name = name.strip()
+            if phone is not None and phone.strip():
+                record.phone = phone.strip()
+            if assigned_aoi is not None and assigned_aoi.strip():
+                record.assigned_aoi = assigned_aoi.strip()
+            if assigned_vehicle_ids is not None:
+                record.assigned_vehicles_csv = ",".join(v.strip() for v in assigned_vehicle_ids if v.strip())
+            record.updated_at = utc_now()
+            db.commit()
+            db.refresh(record)
+            return self._manager_to_dict(record)
+
+    def notify_vehicle_managers(
+        self, v: VehicleState, trigger_type: str, reason_detail: str
+    ) -> List[dict]:
+        """차량 도착(ARRIVED) 또는 고장/문제(FAULT_REPORT) 발생 시 해당 차량 담당자 연락처로 알림을 발송·기록합니다."""
+        self.ensure_initialized()
+        sent: List[dict] = []
+        try:
+            with self.session_factory() as db:
+                managers = db.query(ManagerAccountRecord).order_by(ManagerAccountRecord.user_id).all()
+                for mgr in managers:
+                    assigned_vins = {
+                        vin.strip() for vin in (mgr.assigned_vehicles_csv or "").split(",") if vin.strip()
+                    }
+                    if v.id not in assigned_vins:
+                        continue
+                    prefix = "[도착 알림]" if trigger_type == "ARRIVED" else "[차량 이상 긴급 알림]"
+                    msg = f"{prefix} {mgr.name}({mgr.phone})님, 담당 차량 {v.name}({v.id}): {reason_detail}"
+                    notif = ManagerNotificationRecord(
+                        user_id=mgr.user_id,
+                        manager_name=mgr.name,
+                        contact_phone=mgr.phone,
+                        vehicle_id=v.id,
+                        trigger_type=trigger_type,
+                        message=msg,
+                    )
+                    db.add(notif)
+                    db.flush()
+                    sent.append(
+                        {
+                            "id": notif.id,
+                            "user_id": notif.user_id,
+                            "manager_name": notif.manager_name,
+                            "contact_phone": notif.contact_phone,
+                            "vehicle_id": notif.vehicle_id,
+                            "trigger_type": notif.trigger_type,
+                            "message": notif.message,
+                            "created_at": notif.created_at.isoformat() if notif.created_at else None,
+                        }
+                    )
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] notify_vehicle_managers 실패: {exc}")
+        return sent
+
+    def get_manager_notifications(
+        self,
+        user_id: Optional[str] = None,
+        vehicle_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """발송된 담당자 연락처 알림 내역을 최신순으로 조회합니다."""
+        self.ensure_initialized()
+        with self.session_factory() as db:
+            q = db.query(ManagerNotificationRecord)
+            if user_id:
+                q = q.filter(ManagerNotificationRecord.user_id == user_id)
+            if vehicle_id:
+                q = q.filter(ManagerNotificationRecord.vehicle_id == vehicle_id)
+            rows = q.order_by(ManagerNotificationRecord.id.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "manager_name": r.manager_name,
+                    "contact_phone": r.contact_phone,
+                    "vehicle_id": r.vehicle_id,
+                    "trigger_type": r.trigger_type,
+                    "message": r.message,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
 
     def sync_vehicle(self, v: VehicleState) -> None:
         """차량 최신 상태를 vehicles 테이블에 Upsert합니다."""
@@ -376,10 +560,13 @@ class DatabaseLogger:
 
         try:
             with self.session_factory() as db:
+                db.query(ManagerNotificationRecord).delete()
+                db.query(ManagerAccountRecord).delete()
                 db.query(VehicleEventRecord).delete()
                 db.query(MissionRecord).delete()
                 db.query(VehicleRecord).delete()
                 db.commit()
+            self.ensure_default_managers()
             for v in sim.get_all_vehicles():
                 self.sync_vehicle(v)
         except Exception as exc:
@@ -558,20 +745,27 @@ def attach_simulator_hooks(sim_cls) -> None:
                     else "고장 상태 해제 (정상 복귀)"
                 )
                 db_logger.log_event(v, event_type, detail, task_id=task_id)
+                if v.fault_status == 1:
+                    db_logger.notify_vehicle_managers(
+                        v, "FAULT_REPORT", f"고장/이상 신고 접수 ({reason or '사유 미기재'}) · 위치 ({v.lat:.6f}, {v.lng:.6f})"
+                    )
         return ok
 
     def tick_one_second(self):
         active_tasks = {
-            v_id: v.task.task_id
+            v_id: (v.task.task_id, v.task.target_stop_name)
             for v_id, v in self.vehicles.items()
             if v.task is not None and v.task.phase.value == "driving"
         }
         orig_tick(self)
-        for v_id, prev_task_id in active_tasks.items():
+        for v_id, (prev_task_id, prev_target_name) in active_tasks.items():
             v = self.vehicles.get(v_id)
             if v and (v.task is None or v.task.phase.value == "arrived"):
                 db_logger.update_mission_status(
                     v, prev_task_id, 3, "ARRIVED", f"목적지 도착 완료 ({v.lat:.6f}, {v.lng:.6f})"
+                )
+                db_logger.notify_vehicle_managers(
+                    v, "ARRIVED", f"목적지 '{prev_target_name}' 도착 완료 · 위치 ({v.lat:.6f}, {v.lng:.6f})"
                 )
             elif v and v.task and v.task.task_id == prev_task_id and v.task.phase == TaskPhase.PAUSED:
                 db_logger.update_mission_status(
