@@ -93,8 +93,27 @@ async def test_aoi_and_poi_lifecycle_and_dispatch(isolated_simulator_database, m
         assert "제1시험동 하차장" in disp_res.json()["message"]
         assert sim.get_vehicle("X3S1181").task.target_stop_name == "제1시험동 하차장"
 
-        # 6. 초기 리셋 시 POI 및 추가 AOI도 초기 상태로 복원되는지 확인
+        # 6. 서버 재시작 모사(새 VehicleSimulator 인스턴스 + restore_or_seed_simulator) 시
+        #    생성해 둔 AOI 구역과 POI 거점이 DB에서 그대로 복원되는지 검증
+        restarted_sim = VehicleSimulator()
+        assert restarted_sim.get_all_stops() == []
+        isolated_simulator_database.restore_or_seed_simulator(restarted_sim)
+        assert len(restarted_sim.get_all_stops()) == 1
+        assert restarted_sim.get_all_stops()[0].name == "제1시험동 하차장"
+        assert len(restarted_sim.get_all_aois()) == 2
+        assert {a.name for a in restarted_sim.get_all_aois()} == {"C-Track 오창", "직접 그린 시험구역"}
+
+        # 복원된 시뮬레이터에 이어서 새 POI를 추가할 때 시퀀스 ID(s2)가 겹치지 않고 증가하는지 확인
+        poi2 = restarted_sim.add_stop("물류 하차장 B", 36.7279642, 127.4419241)
+        assert poi2.id == "s2"
+
+        # 7. 초기 리셋 시 POI 및 추가 AOI도 DB와 메모리 모두 초기 상태로 복원되는지 확인
         reset_res = await client.post("/api/vehicles/reset")
         assert reset_res.status_code == 200
         assert (await client.get("/api/stops")).json() == []
         assert len((await client.get("/api/aois")).json()) == 1
+
+        after_reset_sim = VehicleSimulator()
+        isolated_simulator_database.restore_or_seed_simulator(after_reset_sim)
+        assert after_reset_sim.get_all_stops() == []
+        assert len(after_reset_sim.get_all_aois()) == 1

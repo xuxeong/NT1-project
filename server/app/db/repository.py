@@ -1,16 +1,20 @@
 """Repository helper that safely persists vehicle states, missions, and events to PostgreSQL/SQLite."""
+import json
 from typing import List, Optional
 from sqlalchemy.orm import sessionmaker
 
 from app.db.database import SessionLocal, init_db
 from app.db.models import (
+    AoiRegionRecord,
     ManagerAccountRecord,
     ManagerNotificationRecord,
     MissionRecord,
+    PoiStopRecord,
     VehicleEventRecord,
     VehicleRecord,
     utc_now,
 )
+from app.models.route import AoiRegion, Stop
 from app.models.vehicle import Gear, TaskPhase, TaskStatus, VehicleState, VehicleTask
 from app.simulator.road_network import path_length, road_path
 
@@ -394,14 +398,126 @@ class DatabaseLogger:
                 for r in rows
             ]
 
+    def save_stop(self, stop: Stop) -> None:
+        """등록된 POI(거점 지점)를 poi_stops 테이블에 영구 저장합니다."""
+        self.ensure_initialized()
+        try:
+            with self.session_factory() as db:
+                record = db.query(PoiStopRecord).filter(PoiStopRecord.id == stop.id).first()
+                if record is None:
+                    db.add(
+                        PoiStopRecord(
+                            id=stop.id,
+                            name=stop.name,
+                            lat=stop.lat,
+                            lng=stop.lng,
+                            high_precision=stop.high_precision,
+                            has_docking=stop.has_docking,
+                        )
+                    )
+                else:
+                    record.name = stop.name
+                    record.lat = stop.lat
+                    record.lng = stop.lng
+                    record.high_precision = stop.high_precision
+                    record.has_docking = stop.has_docking
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] save_stop 실패: {exc}")
+
+    def delete_stop_record(self, stop_id: str) -> None:
+        """삭제된 POI(거점 지점)를 poi_stops 테이블에서 제거합니다."""
+        self.ensure_initialized()
+        try:
+            with self.session_factory() as db:
+                db.query(PoiStopRecord).filter(PoiStopRecord.id == stop_id).delete()
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] delete_stop_record 실패: {exc}")
+
+    def save_aoi(self, region: AoiRegion) -> None:
+        """생성된 AOI(운행 구역) 폴리곤을 aoi_regions 테이블에 영구 저장합니다."""
+        self.ensure_initialized()
+        try:
+            with self.session_factory() as db:
+                poly_str = json.dumps(region.polygon, ensure_ascii=False)
+                record = db.query(AoiRegionRecord).filter(AoiRegionRecord.id == region.id).first()
+                if record is None:
+                    db.add(
+                        AoiRegionRecord(
+                            id=region.id,
+                            name=region.name,
+                            color=region.color,
+                            polygon_json=poly_str,
+                        )
+                    )
+                else:
+                    record.name = region.name
+                    record.color = region.color
+                    record.polygon_json = poly_str
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] save_aoi 실패: {exc}")
+
+    def delete_aoi_record(self, aoi_id: str) -> None:
+        """삭제된 AOI(운행 구역)를 aoi_regions 테이블에서 제거합니다."""
+        self.ensure_initialized()
+        try:
+            with self.session_factory() as db:
+                db.query(AoiRegionRecord).filter(AoiRegionRecord.id == aoi_id).delete()
+                db.commit()
+        except Exception as exc:
+            print(f"[DB Warning] delete_aoi_record 실패: {exc}")
+
     def restore_or_seed_simulator(self, sim) -> dict[str, str]:
-        """서버 시작 시 DB에 저장된 마지막 차량 상태와 배차 작업을 시뮬레이터로 이어받거나 초기값을 적재합니다."""
+        """서버 시작 시 DB에 저장된 마지막 차량 상태, 배차 작업, AOI 구역 및 POI 거점을 시뮬레이터로 이어받거나 초기값을 적재합니다."""
         from app.simulator.vehicle_sim import calculate_bearing_deg
 
         self.ensure_initialized()
         actions: dict[str, str] = {}
         try:
             with self.session_factory() as db:
+                # 1. AOI(운행 구역) 폴리곤 복원 (기본 AOI는 항상 유지하고 DB에 저장된 추가 AOI를 병합)
+                for aoi in sim.aois.values():
+                    if db.query(AoiRegionRecord).filter(AoiRegionRecord.id == aoi.id).first() is None:
+                        self.save_aoi(aoi)
+                aoi_rows = db.query(AoiRegionRecord).order_by(AoiRegionRecord.id).all()
+                if aoi_rows:
+                    restored_aois: dict[str, AoiRegion] = dict(sim.aois)
+                    max_aoi_seq = 1
+                    for r in aoi_rows:
+                        restored_aois[r.id] = AoiRegion(
+                            id=r.id,
+                            name=r.name,
+                            color=r.color,
+                            polygon=json.loads(r.polygon_json),
+                        )
+                        if r.id.startswith("MOCK_AOI_"):
+                            suffix = r.id.replace("MOCK_AOI_", "")
+                            if suffix.isdigit():
+                                max_aoi_seq = max(max_aoi_seq, int(suffix))
+                    sim.aois = restored_aois
+                    sim._next_aoi_seq = max_aoi_seq + 1
+
+                # 2. POI(거점 지점) 목록 복원
+                poi_rows = db.query(PoiStopRecord).order_by(PoiStopRecord.id).all()
+                if poi_rows:
+                    restored_stops: dict[str, Stop] = {}
+                    max_stop_seq = 0
+                    for r in poi_rows:
+                        restored_stops[r.id] = Stop(
+                            id=r.id,
+                            name=r.name,
+                            lat=float(r.lat),
+                            lng=float(r.lng),
+                            high_precision=bool(r.high_precision),
+                            has_docking=bool(r.has_docking),
+                        )
+                        if r.id.startswith("s") and r.id[1:].isdigit():
+                            max_stop_seq = max(max_stop_seq, int(r.id[1:]))
+                    sim.stops = restored_stops
+                    sim._next_stop_seq = max_stop_seq + 1
+
                 for v_id, v in sim.vehicles.items():
                     record = db.query(VehicleRecord).filter(VehicleRecord.id == v_id).first()
                     if record is None:
@@ -560,6 +676,8 @@ class DatabaseLogger:
 
         try:
             with self.session_factory() as db:
+                db.query(PoiStopRecord).delete()
+                db.query(AoiRegionRecord).delete()
                 db.query(ManagerNotificationRecord).delete()
                 db.query(ManagerAccountRecord).delete()
                 db.query(VehicleEventRecord).delete()
@@ -567,6 +685,8 @@ class DatabaseLogger:
                 db.query(VehicleRecord).delete()
                 db.commit()
             self.ensure_default_managers()
+            for aoi in sim.get_all_aois():
+                self.save_aoi(aoi)
             for v in sim.get_all_vehicles():
                 self.sync_vehicle(v)
         except Exception as exc:
@@ -655,6 +775,32 @@ def attach_simulator_hooks(sim_cls) -> None:
     orig_control = sim_cls.control
     orig_report_fault = sim_cls.report_fault
     orig_tick = sim_cls.tick_one_second
+    orig_add_stop = sim_cls.add_stop
+    orig_delete_stop = sim_cls.delete_stop
+    orig_add_aoi = sim_cls.add_aoi
+    orig_delete_aoi = sim_cls.delete_aoi
+
+    def add_stop(self, name: str, lat: float, lng: float) -> Stop:
+        stop = orig_add_stop(self, name, lat, lng)
+        db_logger.save_stop(stop)
+        return stop
+
+    def delete_stop(self, stop_id: str) -> bool:
+        ok = orig_delete_stop(self, stop_id)
+        if ok:
+            db_logger.delete_stop_record(stop_id)
+        return ok
+
+    def add_aoi(self, *args, **kwargs) -> AoiRegion:
+        region = orig_add_aoi(self, *args, **kwargs)
+        db_logger.save_aoi(region)
+        return region
+
+    def delete_aoi(self, aoi_id: str) -> bool:
+        ok = orig_delete_aoi(self, aoi_id)
+        if ok:
+            db_logger.delete_aoi_record(aoi_id)
+        return ok
 
     def start_dispatch_point(self, vehicle_id: str, target_stop_id: str) -> bool:
         ok = orig_start_point(self, vehicle_id, target_stop_id)
@@ -785,6 +931,10 @@ def attach_simulator_hooks(sim_cls) -> None:
     sim_cls.control = control
     sim_cls.report_fault = report_fault
     sim_cls.tick_one_second = tick_one_second
+    sim_cls.add_stop = add_stop
+    sim_cls.delete_stop = delete_stop
+    sim_cls.add_aoi = add_aoi
+    sim_cls.delete_aoi = delete_aoi
 
 
 from app.simulator.vehicle_sim import VehicleSimulator  # noqa: E402

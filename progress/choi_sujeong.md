@@ -134,10 +134,11 @@
      * `tick_one_second()` 후크에서 정차 중인 모든 차량을 매초 DB에 중복 `UPDATE`하던 비효율을 개선하여, 실제 주행 중인 활성 차량(`active_tasks`)만 매초 스냅샷을 갱신하도록 최적화.
      * OSM 타일 중계 API(`/tiles/{z}/{x}/{y}.png`)에서 타일 요청마다 새 `httpx.AsyncClient`를 생성·종료하던 방식을 공유 커넥션 풀 재사용 구조로 개선하고, WebSocket 텔레메트리 송신 시 `model_dump(mode="json")`을 적용하여 직렬화 안정성 확보 (전체 **45개 pytest 100% 통과**).
 
-  4. **멘토링 요청사항 반영: AOI(운행 구역) 생성·폴리곤 시각화 및 Pin 기반 POI(거점 지점) 설정·배차 연동 (`app/api/routes.py`, `app/simulator/vehicle_sim.py`, `app/templates/dashboard.html`, `tests/test_aoi_poi.py`)**:
+  4. **멘토링 요청사항 반영: AOI(운행 구역) 생성·폴리곤 시각화, Pin 기반 POI(거점 지점) 설정·배차 연동 및 DB 영구 적재·재시작 복원 (`app/api/routes.py`, `app/db/models.py`, `app/db/repository.py`, `app/simulator/vehicle_sim.py`, `app/templates/dashboard.html`, `tests/test_aoi_poi.py`)**:
      * 11/27 4차 멘토링 요청사항(AOI 생성 및 POI 설정 시연)에 맞춰 C-Track 기본 운행 구역(`MOCK_AOI_01`: `C-Track 오창`) 경계 폴리곤 데이터(`INITIAL_AOIS`)와 동적 AOI 조회·생성·삭제 API(`GET/POST/DELETE /api/aois`) 구현.
      * 지도 중앙 핀(`📍`)으로 선택한 좌표를 C-Track 도로 선분 위로 자동 보정(Snap)하여 이름을 붙인 POI(거점)로 등록·삭제하는 API(`POST/DELETE /api/stops`)를 추가하고, 등록된 POI가 학생 앱 지점 조회 API(`POST /openapi-server/slvapi/listStationByVin/v1`) 및 좌표 배차(`target_name`)와 연동되도록 연결.
-     * 관제 대시보드(`/dashboard`)에 **AOI 반경 슬라이더(`40m~400m`) 실시간 미리보기**, **지도 클릭 기반 다각형(Polygon) 직접 그리기 모드**, **현재 핀 위치 POI 등록 및 원클릭 POI 목적지 배차**, **초기 상태 리셋(`🔄 초기 리셋`)** UI를 구축하고 비동기 통합 테스트(`tests/test_aoi_poi.py`) 검증 완료 (전체 **52개 pytest 100% 통과**).
+     * `AoiRegionRecord`(`aoi_regions`) 및 `PoiStopRecord`(`poi_stops`) ORM 테이블을 추가하여 생성·삭제된 AOI와 POI가 DB에 즉시 영구 저장되고, 서버 재시작(`restore_or_seed_simulator`) 시에도 사라지지 않고 그대로 복원되도록 구현.
+     * 관제 대시보드(`/dashboard`)에 **AOI 반경 슬라이더(`40m~400m`) 실시간 미리보기**, **지도 클릭 기반 다각형(Polygon) 직접 그리기 모드**, **현재 핀 위치 POI 등록 및 원클릭 POI 목적지 배차**, **초기 상태 리셋(`🔄 초기 리셋` — 실수 방지를 위한 `confirm` 확인 팝업 포함)** UI를 구축하고 비동기 통합 테스트(`tests/test_aoi_poi.py`) 검증 완료 (전체 **53개 pytest 100% 통과**).
 
   5. **11/27 멘토링 확정 요구사항 반영: DB 가상 담당자 계정 로그인, 계정별 할당 차량 필터링 및 도착·고장 시 담당자 연락처 알림 기능 구현 (`app/db/models.py`, `app/db/repository.py`, `app/api/managers.py`, `app/api/neolix.py`, `tests/test_manager_auth.py`)**:
      * 회원가입 없이 사전 적재된 가상 계정으로 로그인할 수 있도록 `ManagerAccountRecord`(`manager_accounts`) ORM 테이블 및 기본 시드 계정 3종(`manager1`: 1호차 담당, `manager2`: 2호차 담당, `admin`: 1·2호차 전체 담당) 자동 적재 로직(`ensure_default_managers`) 구현.

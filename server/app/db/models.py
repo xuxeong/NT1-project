@@ -102,3 +102,27 @@ class ManagerNotificationRecord(Base):
     )
     message: Mapped[str] = mapped_column(Text, nullable=False, comment="발송된 알림 메시지 본문")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AoiRegionRecord(Base):
+    """C-Track AOI(Area of Interest, 운행 구역) 폴리곤 DB 영구 저장 테이블 (aoi_regions)"""
+    __tablename__ = "aoi_regions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True, comment="AOI 구역 ID (예: MOCK_AOI_01)")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="AOI 운행 구역 명칭")
+    color: Mapped[str] = mapped_column(String(24), default="#38bdf8", comment="지도 폴리곤 표시 색상")
+    polygon_json: Mapped[str] = mapped_column(Text, nullable=False, comment="폴리곤 꼭짓점 좌표 배열(JSON 문자열)")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PoiStopRecord(Base):
+    """C-Track Pin 기반 도로 보정 POI(Point of Interest, 거점 지점) DB 영구 저장 테이블 (poi_stops)"""
+    __tablename__ = "poi_stops"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, index=True, comment="POI 정류장 ID (예: s1, s2)")
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="POI 거점 명칭")
+    lat: Mapped[float] = mapped_column(Float, nullable=False, comment="도로 보정된 위도")
+    lng: Mapped[float] = mapped_column(Float, nullable=False, comment="도로 보정된 경도")
+    high_precision: Mapped[bool] = mapped_column(Boolean, default=True)
+    has_docking: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
