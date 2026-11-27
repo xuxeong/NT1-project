@@ -6,6 +6,7 @@ class DispatchRequest(BaseModel):
     vehicle_id: str = Field(..., description="배차할 차량 ID (예: X3S1181)")
     kind: str = Field("point", description="배차 종류: point(지도 좌표 또는 기존 지점)")
     target_stop_id: Optional[str] = Field(None, description="목표 정류장 ID (kind=point 일 때)")
+    target_name: Optional[str] = Field(None, description="목표 POI(지점) 표시 명칭 (선택)")
     target_lat: Optional[float] = Field(None, ge=-90, le=90, allow_inf_nan=False)
     target_lng: Optional[float] = Field(None, ge=-180, le=180, allow_inf_nan=False)
 

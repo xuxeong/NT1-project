@@ -4,7 +4,7 @@
 목적지 이동은 OSM 도로망에서 좌표 경로를 계산합니다.
 """
 from typing import List
-from app.models.route import Stop, Route
+from app.models.route import Stop, Route, AoiRegion
 from app.models.vehicle import VehicleState, ServiceType, OperationStatus, Gear
 
 # 고정 거점은 사용하지 않습니다. 기존 지점 API용 저장소는 빈 상태로 시작합니다.
@@ -13,6 +13,21 @@ INITIAL_STOPS: List[Stop] = []
 
 # 기업 제공 공식 코스가 없어 사전 정의 코스는 등록하지 않습니다.
 INITIAL_ROUTES: List[Route] = []
+
+# 충북대 오창 C-Track 기본 운행 구역 (AOI) 경계 폴리곤
+INITIAL_AOIS: List[AoiRegion] = [
+    AoiRegion(
+        id="MOCK_AOI_01",
+        name="C-Track 오창",
+        color="#38bdf8",
+        polygon=[
+            {"lat": 36.73115, "lng": 127.43680},
+            {"lat": 36.73115, "lng": 127.44465},
+            {"lat": 36.72485, "lng": 127.44465},
+            {"lat": 36.72485, "lng": 127.43680},
+        ],
+    )
+]
 
 INITIAL_VEHICLES: List[VehicleState] = [
     VehicleState(
