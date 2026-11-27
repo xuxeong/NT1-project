@@ -13,14 +13,15 @@ import type { Vehicle } from '@/types/vehicle';
 
 /**
  * 확인하고 싶은 상황으로 바꿔서 저장하면 됩니다.
- * - 'success': 정상 (0.8초 로딩 후 표시)
+ * - 'success': 정상 (지연 시간만큼 로딩 후 표시)
  * - 'load-error': 로그인·차량 목록·상세를 불러오지 못함 → 오류 안내
  * - 'action-error': 화면은 정상, 버튼 요청(일시정지·재개·전원 등)만 실패 → 토스트
  */
 export const MOCK_SCENARIO: 'success' | 'load-error' | 'action-error' = 'success';
 
-const LOAD_DELAY_MS = 800;
-const ACTION_DELAY_MS = 600;
+/** 응답 지연 (ms). 화면 확인이 편하도록 0으로 둡니다. 로딩 화면을 보려면 예) 800, 600으로 늘리세요 */
+const LOAD_DELAY_MS = 0;
+const ACTION_DELAY_MS = 0;
 
 export class MockNetworkError extends Error {
   constructor() {
