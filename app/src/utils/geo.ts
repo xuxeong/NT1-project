@@ -31,3 +31,35 @@ export function formatDistance(meters: number): string {
   if (meters < 1000) return `${Math.round(meters)} m`;
   return `${(meters / 1000).toFixed(1)} km`;
 }
+
+/** 경로(점 목록) 전체 길이(m) */
+export function pathLength(path: LatLng[]): number {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) total += haversineMeters(path[i - 1], path[i]);
+  return total;
+}
+
+/** 앱 좌표(lat/lng) → 지도 좌표(latitude/longitude). Polyline·Marker에 넘길 때 씁니다 */
+export function toMapCoords(path: LatLng[]) {
+  return path.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+}
+
+/**
+ * 경로 전체가 보이는 지도 범위 (animateToRegion에 넘김).
+ * fitToCoordinates의 여백은 Android에서 단위가 기기마다 달라 보이는 문제가 있어 범위를 직접 계산합니다.
+ * 위쪽에는 안내 문구·핀 말풍선이 있어서 경로가 화면 가운데보다 조금 아래에 오도록 위쪽 여백을 더 줍니다.
+ */
+export function regionAround(path: LatLng[]) {
+  const lats = path.map((p) => p.lat);
+  const lngs = path.map((p) => p.lng);
+  const [minLat, maxLat] = [Math.min(...lats), Math.max(...lats)];
+  const [minLng, maxLng] = [Math.min(...lngs), Math.max(...lngs)];
+  const latitudeDelta = Math.max(0.002, (maxLat - minLat) * 2.2);
+  const longitudeDelta = Math.max(0.002, (maxLng - minLng) * 1.6);
+  return {
+    latitude: (minLat + maxLat) / 2 + latitudeDelta * 0.1,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta,
+    longitudeDelta,
+  };
+}

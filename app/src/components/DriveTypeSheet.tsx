@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChevronRightIcon, Close24Icon, FlagIcon, RouteIcon } from '@/components/icons';
+import { ChevronRightIcon, Close24Icon, FlagLineIcon, RouteIcon } from '@/components/icons';
 import { colors, radius, typography } from '@/theme';
 
 type Props = {
@@ -31,11 +31,11 @@ export function DriveTypeSheet({ visible, onClose, onSelectTask, onSelectTrial }
           <Option
             icon={<RouteIcon width={24} height={24} />}
             title="작업 수행"
-            description="출발지·경유지·도착지와 담당자를 정해 작업을 보내요"
+            description="지도에서 목적지를 찍어 작업을 보내요"
             onPress={onSelectTask}
           />
           <Option
-            icon={<FlagIcon width={24} height={24} />}
+            icon={<FlagLineIcon width={24} height={24} color={colors.accent} />}
             title="시범 운행"
             description="작업 없이 차량을 시험 삼아 주행해요"
             onPress={onSelectTrial}

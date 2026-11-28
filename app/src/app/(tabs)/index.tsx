@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,7 @@ import { VehicleCard } from '@/components/VehicleCard';
 import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
 import { fetchMockVehicles } from '@/mocks/mockServer';
+import { useAuth } from '@/state/auth';
 import { isFilterActive, matchesFilter, useVehicleFilter } from '@/state/vehicleFilter';
 import { colors, radius, typography } from '@/theme';
 import type { Vehicle } from '@/types/vehicle';
@@ -22,6 +23,9 @@ import { waGwa } from '@/utils/korean';
  * 왼쪽 위 지도 버튼으로 지도 보기(매뉴얼 3.2)와 목록 보기를 오갑니다.
  * 서버 연동 전까지는 임시 데이터를 조금 늦게 받아서 로딩·오류 화면도 확인합니다 (mocks/mockServer.ts).
  */
+/** 목록을 보는 동안 다시 불러오는 주기 */
+const LIST_REFRESH_MS = 3000;
+
 export default function VehicleListScreen() {
   const insets = useSafeAreaInsets();
   const userLocation = useUserLocation();
@@ -33,7 +37,23 @@ export default function VehicleListScreen() {
   const { applied: filter } = useVehicleFilter();
   const filterOn = isFilterActive(filter);
 
-  const { data, loading, error, reload } = useAsync(fetchMockVehicles, []);
+  // 로그인한 담당자의 담당 차량만 보여 줍니다 (서버: GET /api/vehicles?user_id=...)
+  const { manager } = useAuth();
+  const assignedIds = manager?.assignedVehicleIds;
+  const { data, loading, error, reload } = useAsync(() => fetchMockVehicles(assignedIds), [assignedIds]);
+
+  // 목록을 보는 동안 3초마다 다시 불러와서 작업 중 → 이용 가능 같은 상태 변화와 지도 위치를 반영합니다.
+  // 다른 화면에서 돌아올 때도 바로 다시 불러옵니다. (처음 열 때는 위 useAsync가 불러옴)
+  // TODO(한정혁): 연동 시 실시간 갱신(1초 조회 또는 /ws/telemetry)으로 바꿔 주세요.
+  const focusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedOnce.current) reload();
+      focusedOnce.current = true;
+      const timer = setInterval(reload, LIST_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [reload]),
+  );
   const vehicles: Vehicle[] = useMemo(() => data ?? [], [data]);
   // 처음 불러오는 중이거나 실패했을 때 (이미 받은 목록이 있으면 그대로 보여 줌)
   const showLoading = loading && !data;

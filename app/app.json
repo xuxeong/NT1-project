@@ -30,7 +30,8 @@
         {
           "locationWhenInUsePermission": "차량과의 거리를 표시하기 위해 현재 위치를 사용합니다."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

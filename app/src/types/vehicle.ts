@@ -78,7 +78,7 @@ export interface Vehicle {
 /** 서비스 유형: 소매 / 운송 / 순찰 (서버 기준. 앱 필터에서는 소매를 쓰지 않음) */
 export type ServiceType = 'retail' | 'transport' | 'patrol';
 
-/** 운행 상태: 정상 운행 / 시범 운행 / 운행 정지 */
+/** 운영 상태: 정상 운영 / 시범 운영 / 운영 중지 (주행 여부가 아니라 운영 투입 여부) */
 export type OperationStatus = 'active' | 'trial' | 'suspended';
 
 /**
@@ -98,6 +98,18 @@ export interface Mission {
   progressPercent: number;
   /** 작업 시작 시각 (ms 타임스탬프) */
   startedAt: number;
+  /** 도착 시각 (ms 타임스탬프). 도착 전이면 없음 */
+  arrivedAt?: number;
+  /**
+   * 출발·도착 알림을 받을 담당자 (목적지 선택 화면에서 고름).
+   * TODO(서버팀 요청): 서버 작업 정보에는 아직 없어서 앱 임시 데이터에만 있어요.
+   */
+  notifyManager?: { userId: string; name: string; phone: string } | null;
+  /**
+   * 차량을 운행시킨 사람 (출발·도착 알림의 '보낸 사람').
+   * TODO(서버팀 요청): 서버 작업 정보에는 아직 없어서 앱 임시 데이터에만 있어요.
+   */
+  dispatchedBy?: { userId: string; name: string; phone: string } | null;
 }
 
 /**

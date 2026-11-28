@@ -1,16 +1,26 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, radius, typography } from '@/theme';
 
 /** 필터 선택 칩 */
-export function FilterChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+export function FilterChip({
+  label,
+  selected,
+  onPress,
+  style,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  style?: StyleProp<ViewStyle>;
+}) {
   return (
     <Pressable
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
       accessibilityLabel={label}
       onPress={onPress}
-      style={({ pressed }) => [styles.chip, selected ? styles.on : styles.off, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [styles.chip, selected ? styles.on : styles.off, style, pressed && { opacity: 0.8 }]}
     >
       {/* 큰 글자 설정에서도 잘리지 않도록 칩 폭에 맞춰 글자를 줄입니다 */}
       <Text

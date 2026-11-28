@@ -37,7 +37,6 @@ export { default as RadioOffIcon } from '../../assets/icons/radio-off.svg';
 // 주행 유형 선택 · 작업 경로 설정
 export { default as ChevronRightIcon } from '../../assets/icons/chevron-right.svg'; // 회색
 export { default as RouteIcon } from '../../assets/icons/route.svg'; // 파랑
-export { default as FlagIcon } from '../../assets/icons/flag.svg'; // 파랑
 export { default as PersonIcon } from '../../assets/icons/person.svg'; // 회색
 export { default as EditIcon } from '../../assets/icons/edit.svg'; // 회색
 export { default as PlusIcon } from '../../assets/icons/plus.svg'; // 파랑
@@ -58,3 +57,13 @@ export { default as PowerIcon } from '../../assets/icons/power.svg'; // 전원 (
 export { default as TabVehicleIcon } from '../../assets/icons/tab-vehicle.svg'; // 탭 (선택: 파랑, 기본: ink)
 export { default as TabMessageIcon } from '../../assets/icons/tab-message.svg';
 export { default as TabAccountIcon } from '../../assets/icons/tab-account.svg';
+
+// 로그인
+export { default as EyeIcon } from '../../assets/icons/eye.svg'; // [색을 바꿔 쓰는 아이콘] 비밀번호 보기
+export { default as CheckIcon } from '../../assets/icons/check.svg'; // [색을 바꿔 쓰는 아이콘] 체크박스
+
+// 메시지 탭
+export { default as FlagLineIcon } from '../../assets/icons/flag-line.svg'; // [색을 바꿔 쓰는 아이콘] 깃발 (도착: 초록, 시범 운행: 파랑, 지도 목적지: 청록-남색)
+
+// 목적지 선택
+export { default as DestinationPinIcon } from '../../assets/icons/pin-destination.svg'; // 파란 핀 (지도 가운데 고정 핀)

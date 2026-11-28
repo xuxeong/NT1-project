@@ -14,6 +14,7 @@ export const colors = {
   sheet: '#FFFFFF', // v2/bg/sheet
   subtle: '#F4F5F7', // v2/bg/subtle
   hairline: '#E3E6EB', // v2/border/hairline
+  borderStrong: '#C5CAD3', // v2/border/strong (체크박스 테두리)
   textSecondary: '#5B6270', // v2/text/secondary
   textTertiary: '#9097A3', // v2/text/tertiary
   onInk: '#FFFFFF', // v2/text/on-ink
@@ -21,7 +22,7 @@ export const colors = {
   // 아직 Figma 변수가 없는 값 (연동 가이드 기준)
   warn: '#F2A900', // 네트워크 지연 '주의' 구간
   routePreview: '#2F80ED', // 지도 경로 미리보기
-  routeConfirmed: '#7B3FE4', // 지도 확정 경로
+  routeConfirmed: '#0E6E7E', // 지도 확정 경로 (청록-남색, OSM 녹지 위에서도 잘 보이는 색)
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;
@@ -46,6 +47,7 @@ export const fonts = {
  */
 export const typography = {
   id28: { fontFamily: fonts.numSemiBold, fontSize: 28, lineHeight: 34, letterSpacing: -0.56 },
+  heading26: { fontFamily: fonts.krBold, fontSize: 26, lineHeight: 34, letterSpacing: -0.26 },
   value18: { fontFamily: fonts.numSemiBold, fontSize: 18, lineHeight: 24, letterSpacing: -0.18 },
   title17: { fontFamily: fonts.krBold, fontSize: 17, lineHeight: 24, letterSpacing: -0.17 },
   button16: { fontFamily: fonts.krBold, fontSize: 16, lineHeight: 24 },
