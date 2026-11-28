@@ -54,10 +54,10 @@ export function applyMockFaultReport(v: Vehicle, reason: string | null, reported
 
 /**
  * 배차 가능 여부(vehicleAvailable)를 상태에 맞게 다시 계산합니다 (서버 dispatch_available과 같은 규칙).
- * 전원 ON + 온라인 + 고장 없음 + 운행 정지(suspended) 아님 + 정차 + 진행 중인 작업 없음이면 배차 가능(0)입니다.
+ * 전원 ON + 온라인 + 고장 없음 + 운영 중지(suspended) 아님 + 정차 + 진행 중인 작업 없음이면 배차 가능(0)입니다.
  * 작업을 취소하거나 끝나도 고장이 남아 있으면 배차할 수 없습니다.
  */
-function withAvailability(v: Vehicle): Vehicle {
+export function withAvailability(v: Vehicle): Vehicle {
   const available =
     v.driveMode === 1 &&
     v.powerState &&

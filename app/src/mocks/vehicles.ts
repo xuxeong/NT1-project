@@ -61,7 +61,10 @@ export const MOCK_VEHICLES: Vehicle[] = [
       routeDistanceM: 740,
       remainingDistanceM: 280,
       progressPercent: 62,
-      startedAt: Date.UTC(2026, 10, 24, 5, 32),
+      startedAt: Date.now() - 3 * 60 * 1000, // 앱을 켜기 3분 전에 출발한 것으로
+      // 이순찰이 운행시키고 알림 받을 담당자를 최총괄로 지정 → admin으로 로그인하면 도착 확인 창이 떠요
+      notifyManager: { userId: 'admin', name: '최총괄 (전체 관제)', phone: '010-9999-0000' },
+      dispatchedBy: { userId: 'manager2', name: '이순찰 (2호차 담당)', phone: '010-3333-4444' },
     },
     operationStatus: 'trial',
     serviceType: 'patrol',

@@ -1,7 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CancelTaskDialog, ConfirmDialog } from '@/components/ConfirmDialog';
@@ -15,6 +15,7 @@ import {
   CloseIcon,
   DiamondIcon,
   DoorIcon,
+  FlagLineIcon,
   GamepadIcon,
   ListIcon,
   LogIcon,
@@ -38,11 +39,13 @@ import { TaskInfoSheet } from '@/components/TaskInfoSheet';
 import { C_TRACK_CENTER } from '@/constants/map';
 import { useAsync } from '@/hooks/useAsync';
 import { useUserLocation } from '@/hooks/useUserLocation';
-import { fetchMockVehicle, sendMockAction, sendMockFaultReport } from '@/mocks/mockServer';
+import { fetchMockRoute, fetchMockVehicle, sendMockAction, sendMockFaultReport } from '@/mocks/mockServer';
 import type { VehicleAction } from '@/mocks/vehicleActions';
+import { useAuth } from '@/state/auth';
+import { useNotifications } from '@/state/notifications';
 import { useToast } from '@/state/toast';
 import { colors, radius, typography } from '@/theme';
-import type { OperationStatus, Vehicle } from '@/types/vehicle';
+import type { LatLng, OperationStatus, Vehicle } from '@/types/vehicle';
 import {
   ControlItem,
   FloatingButton,
@@ -51,19 +54,28 @@ import {
   StatCell,
   StatDivider,
 } from '@/ui';
-import { distanceReference, formatDistance, haversineMeters } from '@/utils/geo';
+import { distanceReference, formatDistance, haversineMeters, toMapCoords } from '@/utils/geo';
 import { getVehicleStatus } from '@/utils/vehicleStatus';
 
 const vehicleImage = require('../../../assets/images/vehicle-n3-card.png');
 
+/** 운영 상태 칩 (서버 operation_status). 주행 여부가 아니라 차량을 운영에 투입했는지를 나타냅니다 */
 const OPERATION: Record<OperationStatus, { label: string; tone: ChipTone }> = {
-  active: { label: '운행 중', tone: 'success' },
+  active: { label: '정상 운영', tone: 'success' },
   trial: { label: '시범 운영', tone: 'accent' },
-  suspended: { label: '운행 중지', tone: 'danger' },
+  suspended: { label: '운영 중지', tone: 'danger' },
 };
 
 /** 닫기: 이전 화면이 없으면(링크·알림으로 바로 열린 경우) 차량 목록으로 이동합니다. */
 const closeDetail = () => (router.canGoBack() ? router.back() : router.replace('/'));
+
+/**
+ * 주행 중일 때 차량 상태를 다시 불러오는 주기 (서버 실시간 위치 갱신과 같은 1초).
+ * TODO(한정혁): 연동 시 1초 주기 조회 또는 /ws/telemetry로 바꿔 주세요.
+ */
+const LIVE_REFRESH_MS = 1000;
+
+
 
 
 /**
@@ -79,6 +91,8 @@ export default function VehicleDetailScreen() {
   const insets = useSafeAreaInsets();
   const userLocation = useUserLocation();
   const { showToast } = useToast();
+  const { refresh: refreshNotifications } = useNotifications();
+  const { manager } = useAuth();
   /** 구현 범위에서 제외된 제어 기능 (NT1 11/16 확정). 화면에는 두고 누르면 안내만 합니다. */
   const comingSoon = () => showToast('추후 지원 예정인 기능이에요', 'info');
   const { data, loading, error, reload } = useAsync(() => fetchMockVehicle(vin), [vin]);
@@ -95,6 +109,72 @@ export default function VehicleDetailScreen() {
   useEffect(() => {
     if (data) setVehicle(data);
   }, [data]);
+
+  // 목적지 선택 화면 등에서 돌아오면 최신 상태로 다시 불러옵니다 (처음 열 때는 위 useAsync가 불러옴)
+  const firstFocus = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      if (firstFocus.current) {
+        firstFocus.current = false;
+        return;
+      }
+      reload();
+    }, [reload]),
+  );
+
+  // 주행 중이면 화면을 보는 동안 1초마다 다시 불러와서 차량 위치·남은 거리·도착을 바로 보여 줍니다.
+  // 버튼 요청을 보내는 중에는 응답과 섞이지 않도록 건너뜁니다.
+  const driving = vehicle?.missionStatus === 1;
+  const pendingRef = useRef(pending);
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+  useFocusEffect(
+    useCallback(() => {
+      if (!driving) return;
+      const timer = setInterval(() => {
+        if (pendingRef.current) return;
+        fetchMockVehicle(vin)
+          .then((next) => {
+            if (!next || pendingRef.current) return;
+            setVehicle(next);
+            // 방금 도착했으면 알림을 바로 조회해서 도착 확인 창을 기다림 없이 띄웁니다 (평소엔 10초 주기)
+            if (next.missionStatus === 3) refreshNotifications();
+          })
+          .catch(() => {
+            // 한 번 실패해도 다음 주기에 다시 시도합니다.
+          });
+      }, LIVE_REFRESH_MS);
+      return () => clearInterval(timer);
+    }, [driving, vin, refreshNotifications]),
+  );
+
+  // 작업 중이면 확정 경로를 지도에 그립니다 (서버: GET /api/dispatch/{vehicle_id}/route).
+  // 작업이 끝나면 지도는 inMission 조건으로 경로를 숨기므로 따로 비우지 않습니다.
+  const missionKey = vehicle?.mission?.missionSubId;
+  const activeMission = vehicle?.missionStatus === 1 || vehicle?.missionStatus === 2;
+  const [route, setRoute] = useState<LatLng[]>([]);
+  const mapRef = useRef<MapView>(null);
+  useEffect(() => {
+    if (!activeMission) return;
+    let cancelled = false;
+    fetchMockRoute(vin)
+      .then((path) => !cancelled && setRoute(path))
+      .catch(() => !cancelled && setRoute([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [vin, activeMission, missionKey]);
+
+  // 주행 중에는 차량 위치가 바뀔 때마다 지도 가운데로 옮겨서 차량을 따라갑니다 (확대 정도는 그대로).
+  // 이 지도는 위쪽 버튼 줄만큼 mapPadding이 있어서, 버튼에 가리지 않는 영역의 가운데에 차량이 옵니다.
+  const [mapReady, setMapReady] = useState(false);
+  const followLat = vehicle?.position.lat;
+  const followLng = vehicle?.position.lng;
+  useEffect(() => {
+    if (!mapReady || !driving || followLat === undefined || followLng === undefined) return;
+    mapRef.current?.animateCamera({ center: { latitude: followLat, longitude: followLng } }, { duration: 800 });
+  }, [mapReady, driving, followLat, followLng]);
 
   const topBar = (onSensorsPress?: () => void, onFaultPress?: () => void) => (
     <View style={[styles.topBar, { paddingTop: insets.top + 6 }]} pointerEvents="box-none">
@@ -177,10 +257,12 @@ export default function VehicleDetailScreen() {
 
   /** 고장 신고 (FaultReportModal에서 호출). 실패하면 예외를 그대로 넘겨 화면에 오류 문구를 띄웁니다. */
   const reportFault = async (reason: string) => {
-    const next = await sendMockFaultReport(vehicle, reason);
+    const next = await sendMockFaultReport(vehicle, reason, manager?.userId ?? '');
     setVehicle(next);
     setFaultOpen(false);
     showToast('고장 신고를 접수했어요');
+    // 담당자 모두에게 간 신고 알림을 목록에 바로 반영합니다 (내가 보낸 알림이라 토스트는 생략됨)
+    refreshNotifications();
   };
 
   const poweredOff = vehicle.driveMode === 0;
@@ -208,6 +290,8 @@ export default function VehicleDetailScreen() {
       {/* ── 지도 ── */}
       <View style={styles.mapArea}>
         <OsmMap
+          ref={mapRef}
+          onMapReady={() => setMapReady(true)}
           key={vehicle.vin}
           style={StyleSheet.absoluteFill}
           attributionStyle={styles.attribution}
@@ -215,6 +299,21 @@ export default function VehicleDetailScreen() {
           // 위쪽 버튼 줄과 아래 시트에 가려지지 않는 영역의 가운데에 차량이 오도록 여백을 줍니다.
           mapPadding={{ top: insets.top + 48, right: 0, bottom: 24, left: 0 }}
         >
+          {inMission && route.length > 1 && (
+            <>
+              {/* 확정 경로: 흰 테두리 + 청록-남색 선, 끝에 목적지 깃발 (Figma: 차량 상세 화면 · 작업 중 경로선) */}
+              <Polyline coordinates={toMapCoords(route)} strokeColor={colors.sheet} strokeWidth={9} />
+              <Polyline coordinates={toMapCoords(route)} strokeColor={colors.routeConfirmed} strokeWidth={5} />
+              <Marker
+                coordinate={toMapCoords(route)[route.length - 1]}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <View style={styles.destMarker}>
+                  <FlagLineIcon width={18} height={18} color={colors.routeConfirmed} />
+                </View>
+              </Marker>
+            </>
+          )}
           <Marker coordinate={{ latitude: lat, longitude: lng }} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
             <VehicleMarkerIcon width={48} height={48} />
           </Marker>
@@ -391,7 +490,7 @@ export default function VehicleDetailScreen() {
         onClose={() => setDriveTypeOpen(false)}
         onSelectTask={() => {
           setDriveTypeOpen(false);
-          router.push({ pathname: '/route-setup/[vin]', params: { vin: vehicle.vin } });
+          router.push({ pathname: '/dispatch/[vin]', params: { vin: vehicle.vin } });
         }}
         onSelectTrial={() => {
           // 바텀 시트(Modal) 위에서는 토스트가 가려지므로 시트를 닫고 안내합니다.
@@ -451,6 +550,16 @@ const styles = StyleSheet.create({
   topActions: { flexDirection: 'row', gap: 8 },
   // 바텀 시트가 지도 아래 24를 덮으므로 OSM 출처 표시를 그 위로 올립니다
   attribution: { bottom: 28 },
+  destMarker: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.routeConfirmed,
+    backgroundColor: colors.sheet,
+  },
   faultButton: { paddingLeft: 12, paddingRight: 14 },
   faultLabel: { ...typography.label12, color: colors.ink },
 

@@ -22,7 +22,7 @@ export const colors = {
   // 아직 Figma 변수가 없는 값 (연동 가이드 기준)
   warn: '#F2A900', // 네트워크 지연 '주의' 구간
   routePreview: '#2F80ED', // 지도 경로 미리보기
-  routeConfirmed: '#7B3FE4', // 지도 확정 경로
+  routeConfirmed: '#0E6E7E', // 지도 확정 경로 (청록-남색, OSM 녹지 위에서도 잘 보이는 색)
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;

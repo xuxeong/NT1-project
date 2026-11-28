@@ -41,7 +41,7 @@ export default function AccountTab() {
           <InfoRow label="담당 차량" value={manager.assignedVehicleIds.join(', ') || '없음'} mono />
           <View style={styles.divider} />
           <InfoRow label="연락처" value={manager.phone} mono />
-          <Text style={styles.hint}>담당 차량이 도착하거나 문제가 생기면 이 연락처로 알림이 가요.</Text>
+          <Text style={styles.hint}>알림 받을 담당자로 지정된 운행의 출발·도착과 담당 차량의 고장 신고를 이 연락처로 알려 드려요.</Text>
         </View>
 
         <Pressable

@@ -6,6 +6,11 @@ export function waGwa(word: string): '와' | '과' {
   return hasFinalConsonant(word) ? '과' : '와';
 }
 
+/** 단어에 맞는 조사 '이/가'. 예) X3S1181 → '이' (일), X3S1182 → '가' (이) */
+export function iGa(word: string): '이' | '가' {
+  return hasFinalConsonant(word) ? '이' : '가';
+}
+
 /** 숫자를 읽었을 때 받침이 있는 것: 0(영) 1(일) 3(삼) 6(육) 7(칠) 8(팔) */
 const DIGITS_WITH_FINAL = new Set(['0', '1', '3', '6', '7', '8']);
 /** 영문 알파벳을 읽었을 때 받침이 있는 것: L(엘) M(엠) N(엔) R(알) */

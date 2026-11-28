@@ -5,9 +5,8 @@ import { StatusChip } from '@/components/StatusChip';
 import { colors, radius, typography } from '@/theme';
 import type { Vehicle } from '@/types/vehicle';
 import { StatCell, StatDivider } from '@/ui';
-
-/** 가상 차량 주행 속도 15km/h = 초당 약 4.17m (서버 시뮬레이터와 같음) */
-const SPEED_M_PER_S = 15_000 / 3600;
+import { minutesToDrive } from '@/constants/vehicle';
+import { formatClock, splitDistance } from '@/utils/format';
 
 type Props = {
   visible: boolean;
@@ -21,7 +20,7 @@ export function TaskInfoSheet({ visible, vehicle, onClose, onCancelPress }: Prop
   const insets = useSafeAreaInsets();
   const m = vehicle.mission;
   const paused = vehicle.missionStatus === 2;
-  const remainingMin = m ? Math.max(1, Math.ceil(m.remainingDistanceM / SPEED_M_PER_S / 60)) : 0;
+  const remainingMin = m ? minutesToDrive(m.remainingDistanceM) : 0;
   const [remainValue, remainUnit] = splitDistance(m?.remainingDistanceM ?? 0);
 
   return (
@@ -50,8 +49,9 @@ export function TaskInfoSheet({ visible, vehicle, onClose, onCancelPress }: Prop
 
         <View style={styles.list}>
           <InfoRow label="작업 ID" value={m ? `${m.missionSubId}` : '-'} />
-          <InfoRow label="시작 시각" value={m ? formatTime(m.startedAt) : '-'} />
+          <InfoRow label="시작 시각" value={m ? formatClock(m.startedAt) : '-'} />
           <InfoRow label="전체 경로 거리" value={m ? splitDistance(m.routeDistanceM).join(' ') : '-'} />
+          {m?.notifyManager && <InfoRow label="알림 받을 담당자" value={m.notifyManager.name} />}
         </View>
 
         <View style={styles.divider} />
@@ -95,17 +95,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
-}
-
-/** 1km 미만은 [값, 'm'], 이상은 [값, 'km'] */
-function splitDistance(meters: number): [string, string] {
-  if (meters < 1000) return [`${Math.round(meters)}`, 'm'];
-  return [(meters / 1000).toFixed(1), 'km'];
-}
-
-function formatTime(ms: number): string {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 const styles = StyleSheet.create({

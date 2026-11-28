@@ -7,21 +7,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
-  type TextInputProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CheckIcon, EyeIcon } from '@/components/icons';
+import { TextField, type TextFieldRef } from '@/components/TextField';
 import { MockAuthError, mockLogin } from '@/mocks/mockServer';
 import { useAuth } from '@/state/auth';
 import { useToast } from '@/state/toast';
 import { colors, typography } from '@/theme';
 import { PrimaryButton } from '@/ui';
-
-/** TextInput에 focus()를 부르기 위한 ref 타입 */
-type InputRef = React.ComponentRef<typeof TextInput>;
 
 const logo = require('../../assets/images/nt1-logo-horizontal.png');
 
@@ -34,7 +30,7 @@ export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { signIn } = useAuth();
   const { showToast } = useToast();
-  const passwordRef = useRef<InputRef>(null);
+  const passwordRef = useRef<TextFieldRef>(null);
 
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
@@ -82,7 +78,7 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.form}>
-          <Field
+          <TextField
             label="아이디"
             value={userId}
             onChangeText={(t) => {
@@ -98,7 +94,7 @@ export default function LoginScreen() {
             onSubmitEditing={() => passwordRef.current?.focus()}
             submitBehavior="submit"
           />
-          <Field
+          <TextField
             ref={passwordRef}
             label="비밀번호"
             value={password}
@@ -162,38 +158,6 @@ export default function LoginScreen() {
   );
 }
 
-type FieldProps = TextInputProps & { label: string; trailing?: React.ReactNode; ref?: React.Ref<InputRef> };
-
-/** 라벨 + 입력칸 (Figma: Text Field). 입력 중에는 흰 바탕 + 파란 테두리 */
-function Field({ label, trailing, ref, onFocus, onBlur, ...input }: FieldProps) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <View style={[styles.inputBox, focused && styles.inputBoxFocused]}>
-        <TextInput
-          ref={ref}
-          {...input}
-          onFocus={(e) => {
-            setFocused(true);
-            onFocus?.(e);
-          }}
-          onBlur={(e) => {
-            setFocused(false);
-            onBlur?.(e);
-          }}
-          placeholderTextColor={colors.textTertiary}
-          selectionColor={colors.accent}
-          cursorColor={colors.accent}
-          style={styles.input}
-          accessibilityLabel={label}
-        />
-        {trailing}
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.sheet },
   content: { paddingHorizontal: 24, paddingBottom: 24, gap: 32 },
@@ -203,31 +167,6 @@ const styles = StyleSheet.create({
   title: { ...typography.heading26, color: colors.ink },
   description: { ...typography.body15, color: colors.textSecondary },
   form: { gap: 16 },
-  field: { gap: 8 },
-  label: { ...typography.label12, color: colors.textSecondary },
-  inputBox: {
-    height: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-    backgroundColor: colors.subtle,
-  },
-  inputBoxFocused: { backgroundColor: colors.sheet, borderColor: colors.accent },
-  // Android에서 Noto Sans KR 위아래 여백 때문에 글자가 잘리지 않도록 lineHeight를 빼고 가운데 정렬합니다.
-  input: {
-    flex: 1,
-    height: '100%',
-    paddingVertical: 0,
-    fontFamily: typography.body15.fontFamily,
-    fontSize: typography.body15.fontSize,
-    color: colors.ink,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
   options: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   checkBox: {

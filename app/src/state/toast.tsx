@@ -1,3 +1,4 @@
+import { usePathname } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +8,11 @@ import { colors, radius, typography } from '@/theme';
 
 /** 토스트가 떠 있는 시간 */
 const TOAST_DURATION_MS = 3000;
+
+/** 하단 탭이 보이는 화면 (토스트를 탭 바 위로 올립니다) */
+const TAB_PATHS = ['/', '/messages', '/account'];
+/** 하단 탭 바 높이 (안전 영역 제외, components/TabBar.tsx) */
+const TAB_BAR_HEIGHT = 57;
 
 /**
  * 토스트 종류 (Figma: Toast)
@@ -59,6 +65,8 @@ export function useToast() {
 
 function ToastView({ message, tone, onHidden }: { message: string; tone: ToastTone; onHidden: () => void }) {
   const insets = useSafeAreaInsets();
+  const onTabScreen = TAB_PATHS.includes(usePathname());
+  const bottom = insets.bottom + (onTabScreen ? TAB_BAR_HEIGHT + 16 : 24);
   const opacity = useRef(new Animated.Value(0)).current;
   const hiddenRef = useRef(onHidden);
   hiddenRef.current = onHidden;
@@ -79,7 +87,7 @@ function ToastView({ message, tone, onHidden }: { message: string; tone: ToastTo
     <Animated.View
       pointerEvents="none"
       accessibilityLiveRegion="polite"
-      style={[styles.toast, { bottom: insets.bottom + 24, opacity, transform: [{ translateY }] }]}
+      style={[styles.toast, { bottom, opacity, transform: [{ translateY }] }]}
     >
       {tone === 'info' ? (
         <InfoIcon width={18} height={18} color={colors.onInk} />
